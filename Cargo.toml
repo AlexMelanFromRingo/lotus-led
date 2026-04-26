@@ -1,0 +1,55 @@
+[package]
+name        = "lotus_led"
+version     = "2.0.0"
+edition     = "2024"
+description = "BLE controller library for BLEDOM / Lotus Lantern LED strips"
+license     = "MIT"
+
+[lib]
+name = "lotus_led"
+path = "src/lib.rs"
+
+[[bin]]
+name              = "led"
+path              = "src/bin/led.rs"
+required-features = ["ble"]
+
+[dependencies]
+# async runtime
+tokio    = { version = "1",  features = ["rt-multi-thread", "time", "sync", "macros"] }
+futures  = "0.3"
+
+# BLE (feature-gated so the lib core builds without it)
+btleplug = { version = "0.11", optional = true }
+uuid     = "1"
+
+# config + serialization
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# error handling
+anyhow    = "1"
+thiserror = "2"
+ctrlc     = { version = "3", features = ["termination"] }
+
+# optional: audio reactive mode
+cpal        = { version = "0.15", optional = true }
+# optional: screen capture (Ambilight)
+screenshots = { version = "0.8",  optional = true }
+# optional: system monitoring
+sysinfo     = { version = "0.33", optional = true }
+
+[features]
+default = ["ble"]
+ble     = ["dep:btleplug"]
+audio   = ["dep:cpal"]
+ambient = ["dep:screenshots"]
+system  = ["dep:sysinfo"]
+full    = ["ble", "audio", "ambient", "system"]
+
+[profile.release]
+opt-level = 3
+lto       = true

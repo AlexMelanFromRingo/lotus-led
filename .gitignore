@@ -1,0 +1,5 @@
+/target
+# Never commit device config — contains personal MAC address
+config.json
+config.local.json
+*.pdb
