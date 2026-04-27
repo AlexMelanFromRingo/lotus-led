@@ -368,13 +368,13 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
           <div class="slider-label">Brightness <span id="brightnessVal">80</span>%</div>
           <input type="range" min="0" max="100" value="80" id="brightnessSlider"
                  oninput="document.getElementById('brightnessVal').textContent=this.value"
-                 onchange="api('brightness',{level:+this.value})">
+                 onchange="api('brightness',{level:+this.value});scheduleSave()">
         </div>
         <div class="slider-row">
           <div class="slider-label">Speed <span id="speedVal">50</span>%</div>
           <input type="range" min="0" max="100" value="50" id="speedSlider"
                  oninput="document.getElementById('speedVal').textContent=this.value"
-                 onchange="api('speed',{level:+this.value})">
+                 onchange="api('speed',{level:+this.value});scheduleSave()">
         </div>
       </div>
     </div>
@@ -564,7 +564,9 @@ let appRules = [
   {process:'discord',  color:'#7289da'},
   {process:'spotify',  color:'#1db954'},
 ];
+let savedModeParams = {};  // per-mode saved slider values
 let ws = null;
+let saveTimer = null;
 
 // ── Init ────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -573,7 +575,68 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSeqSteps();
   renderRules();
   connectWS();
+  loadState();
 });
+
+// ── Persist state ────────────────────────────────────────────────────────────
+async function loadState() {
+  try {
+    const r = await fetch('/api/state');
+    if (!r.ok) return;
+    const s = await r.json();
+
+    if (s.color) {
+      document.getElementById('colorPicker').value = s.color;
+      onColorInput(s.color);
+    }
+    if (s.brightness != null) {
+      document.getElementById('brightnessSlider').value = s.brightness;
+      document.getElementById('brightnessVal').textContent = s.brightness;
+    }
+    if (s.speed != null) {
+      document.getElementById('speedSlider').value = s.speed;
+      document.getElementById('speedVal').textContent = s.speed;
+    }
+    if (Array.isArray(s.app_rules) && s.app_rules.length) {
+      appRules = s.app_rules;
+      renderRules();
+    }
+    if (Array.isArray(s.seq_steps) && s.seq_steps.length) {
+      seqSteps = s.seq_steps;
+      renderSeqSteps();
+    }
+    if (s.mode_params && typeof s.mode_params === 'object') {
+      savedModeParams = s.mode_params;
+    }
+  } catch(_) {}
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSave, 800);
+}
+
+async function doSave() {
+  // Merge current params panel values into savedModeParams
+  if (pendingMode && MODE_PARAMS[pendingMode]) {
+    savedModeParams[pendingMode] = collectParams(pendingMode);
+  }
+  const body = {
+    color:       document.getElementById('colorPicker').value,
+    brightness:  +document.getElementById('brightnessSlider').value,
+    speed:       +document.getElementById('speedSlider').value,
+    app_rules:   appRules,
+    seq_steps:   seqSteps,
+    mode_params: savedModeParams,
+  };
+  try {
+    await fetch('/api/state', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+  } catch(_) {}
+}
 
 // ── WebSocket ───────────────────────────────────────────────────────────────
 function connectWS() {
@@ -682,6 +745,7 @@ async function sendColor() {
   const b = parseInt(hex.slice(5,7),16);
   await api('color', {r, g, b});
   setActiveMode(null);
+  scheduleSave();
 }
 function setColorPicker(r, g, b) {
   const hex = '#' + [r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
@@ -747,9 +811,10 @@ function selectMode(name) {
   if (!params.length) {
     sliders.innerHTML = '<div class="params-empty" style="grid-column:1/-1">No adjustable parameters — click Launch to start.</div>';
   } else {
+    const saved = savedModeParams[name] || {};
     for (const p of params) {
       const id = 'p_' + p.key;
-      const initVal = p.def;
+      const initVal = saved[p.key] != null ? saved[p.key] : p.def;
       const dispVal = p.fmt ? p.fmt(initVal) : initVal;
       sliders.innerHTML += `
         <div class="slider-row">
@@ -786,7 +851,10 @@ function collectParams(name) {
 
 async function launchWithParams() {
   if (!pendingMode) return;
-  await doLaunchMode(pendingMode, collectParams(pendingMode));
+  const params = collectParams(pendingMode);
+  savedModeParams[pendingMode] = params;
+  scheduleSave();
+  await doLaunchMode(pendingMode, params);
 }
 
 async function doLaunchMode(name, extra = {}) {
@@ -870,13 +938,14 @@ function removeStep(i) {
   renderSeqSteps();
 }
 async function runSequence() {
+  scheduleSave();
   const steps = seqSteps.map(s => ({
     color:    s.type === 'color' ? hexToRgb(s.color) : null,
     off:      s.type === 'off',
     duration: s.dur,
   }));
   await api('mode', {name:'sequence', steps, loop: true});
-  setActiveMode(null); // sequence doesn't map to a grid button
+  setActiveMode(null);
 }
 
 // ── App Watch ─────────────────────────────────────────────────────────────────
@@ -904,6 +973,7 @@ function removeRule(i) {
   renderRules();
 }
 async function runAppWatch() {
+  scheduleSave();
   const rules = appRules.map(r => {
     const [cr,cg,cb] = hexToRgb(r.color);
     return {process: r.process, r:cr, g:cg, b:cb};

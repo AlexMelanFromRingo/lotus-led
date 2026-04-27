@@ -39,11 +39,13 @@ struct ModeCmd {
 // ── App state ─────────────────────────────────────────────────────────────────
 
 struct AppState {
-    device:    Option<Arc<BLEDOMDevice>>,
-    config:    Config,
-    mode_stop: Option<Arc<AtomicBool>>,
-    mode_tx:   mpsc::Sender<ModeCmd>,
-    tx:        broadcast::Sender<WsEvent>,
+    device:          Option<Arc<BLEDOMDevice>>,
+    config:          Config,
+    mode_stop:       Option<Arc<AtomicBool>>,
+    mode_tx:         mpsc::Sender<ModeCmd>,
+    tx:              broadcast::Sender<WsEvent>,
+    gui_state:       serde_json::Value,
+    gui_state_path:  std::path::PathBuf,
 }
 
 type Shared = Arc<Mutex<AppState>>;
@@ -123,13 +125,20 @@ fn start_mode_thread(event_tx: broadcast::Sender<WsEvent>) -> mpsc::Sender<ModeC
 
 #[tokio::main]
 async fn main() {
-    let cfg_path = Config::default_path();
-    let config   = Config::load(&cfg_path).unwrap_or_default();
+    let cfg_path       = Config::default_path();
+    let config         = Config::load(&cfg_path).unwrap_or_default();
+    let gui_state_path = cfg_path.with_file_name("gui_state.json");
+    let gui_state      = std::fs::read_to_string(&gui_state_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
     let (tx, _)  = broadcast::channel::<WsEvent>(64);
     let mode_tx  = start_mode_thread(tx.clone());
 
     let state: Shared = Arc::new(Mutex::new(AppState {
         device: None, config, mode_stop: None, mode_tx, tx,
+        gui_state, gui_state_path,
     }));
 
     let cors = CorsLayer::new()
@@ -152,6 +161,7 @@ async fn main() {
         .route("/api/stop",       post(api_stop))
         .route("/api/scene",      post(api_scene))
         .route("/api/status",     get(api_status))
+        .route("/api/state",      get(api_get_state).post(api_save_state))
         .with_state(state)
         .layer(cors);
 
@@ -334,6 +344,24 @@ async fn api_status(State(state): State<Shared>) -> impl IntoResponse {
         .map(|ds| StatusPayload { power: ds.power, mode: ds.mode, speed: ds.speed,
                                    r: ds.r, g: ds.g, b: ds.b });
     Json(StatusResp { status })
+}
+
+async fn api_get_state(State(state): State<Shared>) -> impl IntoResponse {
+    Json(state.lock().await.gui_state.clone())
+}
+
+async fn api_save_state(
+    State(state): State<Shared>,
+    Json(body):   Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let mut s = state.lock().await;
+    s.gui_state = body.clone();
+    let path   = s.gui_state_path.clone();
+    drop(s);
+    if let Ok(json) = serde_json::to_string_pretty(&body) {
+        let _ = std::fs::write(&path, json);
+    }
+    ok(None)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
