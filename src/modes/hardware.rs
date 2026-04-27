@@ -12,7 +12,8 @@ pub async fn run_hw(
     if let Some(b) = brightness {
         device.send(Packet::brightness(b)).await?;
     }
-    device.send(Packet::hw_mode(mode, speed)).await?;
+    device.send(Packet::speed(speed)).await?;
+    device.send(Packet::hw_mode(mode)).await?;
     Ok(())
 }
 

@@ -262,7 +262,10 @@ async fn run_sequence(
                 device.send(Packet::brightness(br)).await?;
             }
             if let Some(hw) = step.hw_mode {
-                device.send(Packet::hw_mode(hw, step.hw_speed.unwrap_or(50))).await?;
+                if let Some(spd) = step.hw_speed {
+                    device.send(Packet::speed(spd)).await?;
+                }
+                device.send(Packet::hw_mode(hw)).await?;
             }
             if let Some(raw) = step.raw {
                 device.send(Packet::raw(raw)).await?;

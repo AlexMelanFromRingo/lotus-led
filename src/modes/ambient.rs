@@ -17,10 +17,11 @@ pub async fn run_ambient(
     smoothing: f32,
     flag: &AtomicBool,
 ) -> Result<()> {
-    let dt         = std::time::Duration::from_millis(1000 / fps.max(1) as u64);
-    let screens    = Screen::all()?;
-    let screen     = screens.into_iter().next()
-        .ok_or_else(|| anyhow::anyhow!("No screen found"))?;
+    let dt      = std::time::Duration::from_millis(1000 / fps.max(1) as u64);
+    let screens = Screen::all()?;
+    let screen  = screens.into_iter()
+        .find(|s| s.display_info.is_primary)
+        .ok_or_else(|| anyhow::anyhow!("No primary screen found"))?;
 
     let (mut prev_r, mut prev_g, mut prev_b) = (0u8, 0u8, 0u8);
 

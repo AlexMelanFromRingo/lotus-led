@@ -21,27 +21,28 @@ pub const KNOWN_MAC_PREFIX_HINT: &str = "BE:60:65";
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[repr(u8)]
 pub enum HWMode {
-    // ELK-BLEDOM / ELK-BLEDOB hardware mode codes (0x25–0x38)
-    Fade7Color      = 0x25,  // 7-color gradual cross-fade
-    FadeRed         = 0x26,
-    FadeGreen       = 0x27,
-    FadeBlue        = 0x28,
-    FadeYellow      = 0x29,
-    FadeCyan        = 0x2A,
-    FadePurple      = 0x2B,
-    FadeWhite       = 0x2C,
-    CrossRedGreen   = 0x2D,
-    CrossRedBlue    = 0x2E,
-    CrossGreenBlue  = 0x2F,
-    Strobe7Color    = 0x30,  // 7-color strobe flash
-    StrobeRed       = 0x31,
-    StrobeGreen     = 0x32,
-    StrobeBlue      = 0x33,
-    StrobeYellow    = 0x34,
-    StrobeCyan      = 0x35,
-    StrobePurple    = 0x36,
-    StrobeWhite     = 0x37,
-    Jump7Color      = 0x38,  // 7-color abrupt jump
+    // ELK-BLEDOM / ELK-BLEDOB hardware mode codes (0x87–0x9C)
+    // Verified against: TheSylex/ELK-BLEDOM, arduino12/ble_rgb_led_strip_controller
+    Fade7Color      = 0x8A,  // 7-color gradual cross-fade (gradient_rgbycmw)
+    FadeRed         = 0x8B,
+    FadeGreen       = 0x8C,
+    FadeBlue        = 0x8D,
+    FadeYellow      = 0x8E,
+    FadeCyan        = 0x8F,
+    FadePurple      = 0x90,
+    FadeWhite       = 0x91,
+    CrossRedGreen   = 0x92,
+    CrossRedBlue    = 0x93,
+    CrossGreenBlue  = 0x94,
+    Strobe7Color    = 0x95,  // 7-color strobe flash (blink_rgbycmw)
+    StrobeRed       = 0x96,
+    StrobeGreen     = 0x97,
+    StrobeBlue      = 0x98,
+    StrobeYellow    = 0x99,
+    StrobeCyan      = 0x9A,
+    StrobePurple    = 0x9B,
+    StrobeWhite     = 0x9C,
+    Jump7Color      = 0x88,  // 7-color abrupt jump (jump_rgbycmw)
 }
 
 impl HWMode {
@@ -118,10 +119,9 @@ impl Packet {
     }
 
     /// Activate a hardware built-in animation mode.
-    /// speed 0–100 where 0 = fastest, 100 = slowest.
-    pub fn hw_mode(mode: HWMode, speed: u8) -> Self {
-        // Byte[5] must be 0xFF for the controller to recognise this command.
-        Self([0x7E, 0x05, 0x03, mode as u8, speed.min(100), 0xFF, 0x00, 0x00, 0xEF])
+    /// Send `Packet::speed()` separately to control animation speed.
+    pub fn hw_mode(mode: HWMode) -> Self {
+        Self([0x7E, 0x00, 0x03, mode as u8, 0x03, 0x00, 0x00, 0x00, 0xEF])
     }
 
     /// Activate on-board microphone (if present), sensitivity 0–255

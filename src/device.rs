@@ -248,7 +248,8 @@ impl BLEDOMDevice {
         self.send(Packet::speed(level)).await
     }
     pub async fn set_hw_mode(&self, mode: crate::protocol::HWMode, speed: u8) -> Result<()> {
-        self.send(Packet::hw_mode(mode, speed)).await
+        self.send(Packet::speed(speed)).await?;
+        self.send(Packet::hw_mode(mode)).await
     }
     pub async fn set_mic(&self, sensitivity: u8) -> Result<()> {
         self.send(Packet::mic_sensitivity(sensitivity)).await
