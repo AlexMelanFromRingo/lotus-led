@@ -164,6 +164,11 @@ impl BLEDOMDevice {
             .unwrap_or_else(|| "unknown".into())
     }
 
+    /// Returns the device MAC address string.
+    pub fn address(&self) -> String {
+        self.peripheral.address().to_string()
+    }
+
     /// Returns `true` if the underlying BLE peripheral is connected.
     pub fn is_connected(&self) -> bool {
         futures::executor::block_on(self.peripheral.is_connected()).unwrap_or(false)

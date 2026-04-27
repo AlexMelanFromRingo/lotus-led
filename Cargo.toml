@@ -14,6 +14,11 @@ name              = "led"
 path              = "src/bin/led.rs"
 required-features = ["ble"]
 
+[[bin]]
+name              = "led_app"
+path              = "src/bin/led_app.rs"
+required-features = ["ble", "gui"]
+
 [dependencies]
 # async runtime
 tokio    = { version = "1",  features = ["rt-multi-thread", "time", "sync", "macros"] }
@@ -42,6 +47,11 @@ screenshots = { version = "0.8",  optional = true }
 # optional: system monitoring
 sysinfo     = { version = "0.33", optional = true }
 
+# optional: GUI web server
+axum        = { version = "0.7",  features = ["ws"], optional = true }
+tower-http  = { version = "0.5",  features = ["cors", "set-header"], optional = true }
+tokio-tungstenite = { version = "0.21", optional = true }
+
 [features]
 default = ["ble"]
 ble     = ["dep:btleplug"]
@@ -49,6 +59,7 @@ audio   = ["dep:cpal"]
 ambient = ["dep:screenshots"]
 system  = ["dep:sysinfo"]
 full    = ["ble", "audio", "ambient", "system"]
+gui     = ["ble", "dep:axum", "dep:tower-http", "dep:tokio-tungstenite"]
 
 [profile.release]
 opt-level = 3

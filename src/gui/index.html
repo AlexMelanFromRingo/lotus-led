@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lotus LED</title>
+<style>
+:root {
+  --bg:      #0d0d0f;
+  --surface: #17171c;
+  --card:    #1e1e26;
+  --border:  #2a2a38;
+  --accent:  #7c5cbf;
+  --accent2: #b06fe3;
+  --text:    #e8e8f0;
+  --muted:   #7a7a98;
+  --green:   #4ade80;
+  --red:     #f87171;
+  --radius:  12px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+}
+
+/* ── Layout ── */
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+}
+.logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+.logo span { color: var(--accent2); }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--red); transition: background .3s;
+}
+.status-dot.on { background: var(--green); }
+.device-name { color: var(--muted); font-size: 13px; }
+.spacer { flex: 1; }
+
+.main { padding: 20px; display: grid; gap: 16px; max-width: 900px; margin: 0 auto; }
+
+/* ── Cards ── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.card-title {
+  font-size: 11px; font-weight: 600; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--muted);
+  margin-bottom: 14px;
+}
+
+/* ── Buttons ── */
+btn, button {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; cursor: pointer; border: none; outline: none;
+  border-radius: 8px; font-size: 13px; font-weight: 500;
+  transition: all .15s; padding: 8px 16px;
+}
+button { font-family: inherit; }
+.btn-primary {
+  background: var(--accent); color: #fff;
+}
+.btn-primary:hover { background: var(--accent2); }
+.btn-ghost {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+.btn-danger { background: #3a1a1a; color: var(--red); border: 1px solid #5a2a2a; }
+.btn-danger:hover { background: #5a2020; }
+.btn-sm { padding: 5px 11px; font-size: 12px; }
+.btn-icon {
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--muted); padding: 8px; border-radius: 8px;
+}
+.btn-icon:hover { color: var(--text); border-color: var(--accent); }
+
+/* ── Connect panel ── */
+.connect-row {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.connect-row input {
+  flex: 1; min-width: 180px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); padding: 8px 12px;
+  font-size: 13px; font-family: 'Consolas', monospace;
+  outline: none; transition: border-color .15s;
+}
+.connect-row input:focus { border-color: var(--accent); }
+.scan-results {
+  display: none; margin-top: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}
+.scan-item {
+  padding: 10px 14px; cursor: pointer; display: flex;
+  align-items: center; gap: 10px; border-bottom: 1px solid var(--border);
+  transition: background .1s;
+}
+.scan-item:last-child { border-bottom: none; }
+.scan-item:hover { background: var(--card); }
+.scan-item .mac { font-family: monospace; font-size: 12px; color: var(--muted); }
+
+/* ── Color + Quick controls ── */
+.controls-grid {
+  display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start;
+}
+.color-block { display: flex; flex-direction: column; gap: 8px; }
+.color-preview {
+  width: 72px; height: 72px; border-radius: 12px;
+  border: 2px solid var(--border); cursor: pointer;
+  transition: border-color .2s;
+}
+.color-preview:hover { border-color: var(--accent); }
+input[type="color"] {
+  position: absolute; opacity: 0; width: 0; height: 0;
+}
+.color-hex {
+  font-family: monospace; font-size: 12px; color: var(--muted);
+  text-align: center;
+}
+.sliders { display: flex; flex-direction: column; gap: 14px; }
+.slider-row { display: flex; flex-direction: column; gap: 6px; }
+.slider-label {
+  display: flex; justify-content: space-between;
+  font-size: 12px; color: var(--muted);
+}
+.slider-label span { color: var(--text); font-weight: 600; }
+input[type="range"] {
+  width: 100%; height: 4px; appearance: none;
+  background: var(--border); border-radius: 4px; outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--accent); cursor: pointer;
+  border: 2px solid var(--bg); transition: background .15s;
+}
+input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
+
+/* ── Power buttons ── */
+.power-row { display: flex; gap: 10px; margin-bottom: 16px; }
+.btn-on  { background: #1a3a1a; color: var(--green); border: 1px solid #2a5a2a; }
+.btn-on:hover  { background: #1f4a1f; }
+.btn-off { background: #3a1a1a; color: var(--red);   border: 1px solid #5a2a2a; }
+.btn-off:hover { background: #5a2020; }
+
+/* ── Mode grid ── */
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px;
+}
+.mode-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: all .15s;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 500; color: var(--muted);
+  letter-spacing: 0.3px;
+}
+.mode-btn .icon { font-size: 20px; }
+.mode-btn:hover { border-color: var(--accent); color: var(--text); }
+.mode-btn.active {
+  border-color: var(--accent); background: #1e1030;
+  color: var(--accent2); box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+/* ── Scene grid ── */
+.scene-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+}
+.scene-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: all .15s;
+  font-size: 12px; color: var(--muted);
+}
+.scene-btn .icon { font-size: 22px; display: block; margin-bottom: 4px; }
+.scene-btn:hover { border-color: var(--accent); color: var(--text); }
+
+/* ── Sequence builder ── */
+.seq-steps { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.seq-step {
+  display: grid;
+  grid-template-columns: 36px auto 1fr auto auto auto;
+  gap: 8px; align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.seq-step input[type="color"] {
+  position: static; opacity: 1; width: 28px; height: 28px;
+  border-radius: 6px; padding: 0; border: 2px solid var(--border);
+  cursor: pointer; background: none;
+}
+.seq-step input[type="number"] {
+  width: 60px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); padding: 4px 6px;
+  font-size: 12px; outline: none;
+}
+.seq-step input[type="number"]:focus { border-color: var(--accent); }
+.seq-step select {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); padding: 4px 6px;
+  font-size: 12px; outline: none; cursor: pointer;
+}
+.step-label { font-size: 11px; color: var(--muted); }
+.step-num {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--border); color: var(--muted);
+  font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.seq-actions { display: flex; gap: 8px; }
+
+/* ── AppWatch rules ── */
+.rule-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.rule-row {
+  display: grid; grid-template-columns: 1fr 36px auto;
+  gap: 8px; align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px;
+}
+.rule-row input[type="text"] {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); padding: 5px 8px;
+  font-size: 12px; font-family: 'Consolas', monospace;
+  outline: none; width: 100%;
+}
+.rule-row input[type="text"]:focus { border-color: var(--accent); }
+.rule-row input[type="color"] {
+  position: static; opacity: 1; width: 28px; height: 28px;
+  border-radius: 6px; padding: 0; border: 2px solid var(--border);
+  cursor: pointer; background: none;
+}
+
+/* ── Status bar ── */
+.status-bar {
+  display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+  font-size: 12px; font-family: 'Consolas', monospace; color: var(--muted);
+}
+.status-bar .val { color: var(--text); }
+.status-bar .pill {
+  padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+}
+.pill-on  { background: #1a3a1a; color: var(--green); }
+.pill-off { background: #3a1a1a; color: var(--red); }
+
+/* ── Toast ── */
+#toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 16px;
+  font-size: 13px; color: var(--text);
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  transform: translateY(80px); opacity: 0;
+  transition: all .25s; pointer-events: none; z-index: 200;
+}
+#toast.show { transform: translateY(0); opacity: 1; }
+
+/* ── Spinner ── */
+.spin {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Tabs ── */
+.tabs { display: flex; gap: 2px; margin-bottom: 16px; }
+.tab {
+  padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  font-size: 12px; font-weight: 500; color: var(--muted);
+  transition: all .15s; background: none; border: none;
+  font-family: inherit;
+}
+.tab:hover { color: var(--text); }
+.tab.active { background: var(--surface); color: var(--text); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+@media (max-width: 600px) {
+  .controls-grid { grid-template-columns: 1fr; }
+  .color-block { flex-direction: row; align-items: center; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ── -->
+<div class="topbar">
+  <div class="logo">🌸 <span>Lotus</span> LED</div>
+  <div class="status-dot" id="statusDot"></div>
+  <div class="device-name" id="deviceName">Not connected</div>
+  <div class="spacer"></div>
+  <button class="btn-icon btn-sm" onclick="refreshStatus()" title="Refresh status">⟳</button>
+</div>
+
+<!-- ── Main ── -->
+<div class="main">
+
+  <!-- Connect -->
+  <div class="card">
+    <div class="card-title">Device</div>
+    <div class="connect-row">
+      <input type="text" id="macInput" placeholder="Auto-discover (leave empty)" spellcheck="false">
+      <button class="btn-primary" onclick="doConnect()" id="connectBtn">Connect</button>
+      <button class="btn-ghost" onclick="doScan()" id="scanBtn">Scan</button>
+      <button class="btn-danger btn-sm" onclick="doDisconnect()">Disconnect</button>
+    </div>
+    <div class="scan-results" id="scanResults"></div>
+  </div>
+
+  <!-- Power + Color + Sliders -->
+  <div class="card">
+    <div class="card-title">Control</div>
+    <div class="power-row">
+      <button class="btn-on" onclick="api('on')">⚡ ON</button>
+      <button class="btn-off" onclick="api('off')">⏻ OFF</button>
+    </div>
+    <div class="controls-grid">
+      <div class="color-block">
+        <div class="color-preview" id="colorPreview" style="background:#ff6420"
+             onclick="document.getElementById('colorPicker').click()"></div>
+        <input type="color" id="colorPicker" value="#ff6420" oninput="onColorInput(this.value)">
+        <div class="color-hex" id="colorHex">#ff6420</div>
+        <button class="btn-ghost btn-sm" onclick="sendColor()">Apply</button>
+      </div>
+      <div class="sliders">
+        <div class="slider-row">
+          <div class="slider-label">Brightness <span id="brightnessVal">80</span>%</div>
+          <input type="range" min="0" max="100" value="80" id="brightnessSlider"
+                 oninput="document.getElementById('brightnessVal').textContent=this.value"
+                 onchange="api('brightness',{level:+this.value})">
+        </div>
+        <div class="slider-row">
+          <div class="slider-label">Speed <span id="speedVal">50</span>%</div>
+          <input type="range" min="0" max="100" value="50" id="speedSlider"
+                 oninput="document.getElementById('speedVal').textContent=this.value"
+                 onchange="api('speed',{level:+this.value})">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modes + Scenes tabs -->
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('modes',this)">Modes</button>
+      <button class="tab" onclick="switchTab('scenes',this)">Scenes</button>
+      <button class="tab" onclick="switchTab('seq',this)">Sequence</button>
+      <button class="tab" onclick="switchTab('appwatch',this)">App Watch</button>
+    </div>
+
+    <!-- Modes -->
+    <div class="tab-panel active" id="tab-modes">
+      <div class="mode-grid" id="modeGrid"></div>
+    </div>
+
+    <!-- Scenes -->
+    <div class="tab-panel" id="tab-scenes">
+      <div class="scene-grid" id="sceneGrid"></div>
+    </div>
+
+    <!-- Sequence -->
+    <div class="tab-panel" id="tab-seq">
+      <div class="seq-steps" id="seqSteps"></div>
+      <div class="seq-actions">
+        <button class="btn-ghost btn-sm" onclick="addStep()">+ Add step</button>
+        <button class="btn-primary btn-sm" onclick="runSequence()">▶ Run</button>
+        <button class="btn-ghost btn-sm" onclick="stopMode()">■ Stop</button>
+      </div>
+    </div>
+
+    <!-- AppWatch -->
+    <div class="tab-panel" id="tab-appwatch">
+      <div class="rule-list" id="ruleList"></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="btn-ghost btn-sm" onclick="addRule()">+ Add rule</button>
+        <button class="btn-primary btn-sm" onclick="runAppWatch()">▶ Run</button>
+        <button class="btn-ghost btn-sm" onclick="stopMode()">■ Stop</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">
+        Matches foreground app name (case-insensitive substring). E.g. "telegram", "discord", "spotify".
+      </div>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="card">
+    <div class="card-title">Status</div>
+    <div class="status-bar" id="statusBar">
+      <span>Waiting...</span>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── Modes data ──────────────────────────────────────────────────────────────
+const MODES = [
+  {name:'static',   label:'Static',   icon:'■'},
+  {name:'pulse',    label:'Pulse',    icon:'◎'},
+  {name:'rainbow',  label:'Rainbow',  icon:'🌈'},
+  {name:'wave',     label:'Wave',     icon:'〜'},
+  {name:'fire',     label:'Fire',     icon:'🔥'},
+  {name:'meteor',   label:'Meteor',   icon:'☄'},
+  {name:'comet',    label:'Comet',    icon:'✦'},
+  {name:'sunrise',  label:'Sunrise',  icon:'🌅'},
+  {name:'sunset',   label:'Sunset',   icon:'🌇'},
+  {name:'cct',      label:'Daylight', icon:'💡'},
+  {name:'sleep_timer',label:'Sleep',  icon:'🌙'},
+  {name:'alarm',    label:'Alarm',    icon:'⏰'},
+  {name:'audio',    label:'Audio FFT',icon:'🎤'},
+  {name:'music',    label:'Music',    icon:'🎵'},
+  {name:'ambient',  label:'Ambilight',icon:'🖥'},
+  {name:'system',   label:'CPU/RAM',  icon:'💻'},
+  {name:'game',     label:'Game',     icon:'🎮'},
+  {name:'mic_hw',   label:'Mic HW',   icon:'🎙'},
+  {name:'fade_7_color',label:'Fade7', icon:'🌊'},
+  {name:'strobe_7_color',label:'Strobe7',icon:'⚡'},
+  {name:'jump_7_color',label:'Jump7', icon:'🎆'},
+];
+
+const SCENES = [
+  {name:'movie',   label:'Movie',   icon:'🎬'},
+  {name:'party',   label:'Party',   icon:'🎉'},
+  {name:'romance', label:'Romance', icon:'❤️'},
+  {name:'relax',   label:'Relax',   icon:'🛋️'},
+  {name:'focus',   label:'Focus',   icon:'🎯'},
+  {name:'gaming',  label:'Gaming',  icon:'🕹️'},
+  {name:'chill',   label:'Chill',   icon:'🧊'},
+];
+
+// ── State ───────────────────────────────────────────────────────────────────
+let connected = false;
+let activeMode = null;
+let seqSteps = [{color:'#ff0000', dur:1.0, type:'color'}, {color:'#00ff00', dur:1.0, type:'color'}];
+let appRules = [
+  {process:'telegram', color:'#0088d4'},
+  {process:'discord',  color:'#7289da'},
+  {process:'spotify',  color:'#1db954'},
+];
+let ws = null;
+
+// ── Init ────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  buildModeGrid();
+  buildSceneGrid();
+  renderSeqSteps();
+  renderRules();
+  connectWS();
+});
+
+// ── WebSocket ───────────────────────────────────────────────────────────────
+function connectWS() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'status') updateStatus(msg.data);
+    if (msg.type === 'connected') onConnected(msg.mac);
+    if (msg.type === 'disconnected') onDisconnected();
+  };
+  ws.onclose = () => setTimeout(connectWS, 2000);
+}
+
+// ── Connection ──────────────────────────────────────────────────────────────
+async function doConnect() {
+  const mac = document.getElementById('macInput').value.trim();
+  const btn = document.getElementById('connectBtn');
+  btn.innerHTML = '<span class="spin"></span>';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/connect', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({mac})
+    });
+    const j = await r.json();
+    if (j.ok) { onConnected(j.mac); toast('Connected: ' + j.mac); }
+    else toast('Failed: ' + (j.error || 'unknown'), true);
+  } finally {
+    btn.textContent = 'Connect'; btn.disabled = false;
+  }
+}
+
+async function doDisconnect() {
+  await fetch('/api/disconnect', {method:'POST'});
+  onDisconnected();
+}
+
+async function doScan() {
+  const btn = document.getElementById('scanBtn');
+  const res = document.getElementById('scanResults');
+  btn.innerHTML = '<span class="spin"></span>';
+  btn.disabled = true;
+  res.style.display = 'block';
+  res.innerHTML = '<div class="scan-item" style="color:var(--muted)">Scanning (8s)...</div>';
+  try {
+    const r = await fetch('/api/scan');
+    const j = await r.json();
+    res.innerHTML = '';
+    if (!j.devices || j.devices.length === 0) {
+      res.innerHTML = '<div class="scan-item" style="color:var(--muted)">No devices found</div>';
+    } else {
+      for (const d of j.devices) {
+        const el = document.createElement('div');
+        el.className = 'scan-item';
+        el.innerHTML = `<span>${d.name}</span><span class="mac">${d.address}</span>`;
+        el.onclick = () => {
+          document.getElementById('macInput').value = d.address;
+          res.style.display = 'none';
+        };
+        res.appendChild(el);
+      }
+    }
+  } finally {
+    btn.textContent = 'Scan'; btn.disabled = false;
+  }
+}
+
+function onConnected(mac) {
+  connected = true;
+  document.getElementById('statusDot').className = 'status-dot on';
+  document.getElementById('deviceName').textContent = mac;
+}
+function onDisconnected() {
+  connected = false;
+  document.getElementById('statusDot').className = 'status-dot';
+  document.getElementById('deviceName').textContent = 'Not connected';
+}
+
+// ── API calls ───────────────────────────────────────────────────────────────
+async function api(endpoint, body = null) {
+  try {
+    const r = await fetch('/api/' + endpoint, {
+      method: 'POST',
+      headers: body ? {'Content-Type':'application/json'} : {},
+      body:    body ? JSON.stringify(body) : null,
+    });
+    return await r.json();
+  } catch(e) { toast(e.message, true); }
+}
+
+// ── Color ───────────────────────────────────────────────────────────────────
+function onColorInput(hex) {
+  document.getElementById('colorPreview').style.background = hex;
+  document.getElementById('colorHex').textContent = hex;
+}
+async function sendColor() {
+  const hex = document.getElementById('colorPicker').value;
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  await api('color', {r, g, b});
+  setActiveMode(null);
+}
+
+// ── Status ───────────────────────────────────────────────────────────────────
+function updateStatus(s) {
+  const bar = document.getElementById('statusBar');
+  const pill = s.power
+    ? '<span class="pill pill-on">ON</span>'
+    : '<span class="pill pill-off">OFF</span>';
+  const rgb = `rgb(${s.r},${s.g},${s.b})`;
+  bar.innerHTML = `
+    ${pill}
+    <span>Mode: <span class="val">0x${s.mode.toString(16).toUpperCase().padStart(2,'0')}</span></span>
+    <span>Speed: <span class="val">${s.speed}</span></span>
+    <span>RGB: <span class="val">(${s.r}, ${s.g}, ${s.b})</span>
+      <span style="display:inline-block;width:12px;height:12px;border-radius:3px;
+                   background:${rgb};margin-left:4px;vertical-align:middle"></span>
+    </span>
+  `;
+  // Sync sliders/color to status
+  if (s.power) {
+    const hex = '#' + [s.r,s.g,s.b].map(v=>v.toString(16).padStart(2,'0')).join('');
+    document.getElementById('colorPreview').style.background = hex;
+    document.getElementById('colorHex').textContent = hex;
+  }
+}
+async function refreshStatus() {
+  const r = await fetch('/api/status');
+  if (r.ok) { const j = await r.json(); if (j.status) updateStatus(j.status); }
+}
+
+// ── Modes ────────────────────────────────────────────────────────────────────
+function buildModeGrid() {
+  const grid = document.getElementById('modeGrid');
+  for (const m of MODES) {
+    const btn = document.createElement('div');
+    btn.className = 'mode-btn';
+    btn.id = 'mode-' + m.name;
+    btn.innerHTML = `<span class="icon">${m.icon}</span>${m.label}`;
+    btn.onclick = () => activateMode(m.name);
+    grid.appendChild(btn);
+  }
+}
+function buildSceneGrid() {
+  const grid = document.getElementById('sceneGrid');
+  for (const s of SCENES) {
+    const btn = document.createElement('div');
+    btn.className = 'scene-btn';
+    btn.innerHTML = `<span class="icon">${s.icon}</span>${s.label}`;
+    btn.onclick = () => api('scene', {name: s.name});
+    grid.appendChild(btn);
+  }
+}
+async function activateMode(name) {
+  setActiveMode(name);
+  await api('mode', {name});
+}
+async function stopMode() {
+  setActiveMode(null);
+  await api('stop');
+}
+function setActiveMode(name) {
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  if (name) {
+    const el = document.getElementById('mode-' + name);
+    if (el) el.classList.add('active');
+  }
+  activeMode = name;
+}
+function switchTab(id, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-' + id).classList.add('active');
+}
+
+// ── Sequence ─────────────────────────────────────────────────────────────────
+function renderSeqSteps() {
+  const cont = document.getElementById('seqSteps');
+  cont.innerHTML = '';
+  seqSteps.forEach((step, i) => {
+    const el = document.createElement('div');
+    el.className = 'seq-step';
+    el.innerHTML = `
+      <div class="step-num">${i+1}</div>
+      <input type="color" value="${step.color}" oninput="seqSteps[${i}].color=this.value">
+      <select onchange="seqSteps[${i}].type=this.value">
+        ${['color','off','on'].map(t=>`<option value="${t}" ${step.type===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+      <span class="step-label">
+        <input type="number" value="${step.dur}" min="0.1" max="300" step="0.5"
+               oninput="seqSteps[${i}].dur=+this.value" style="width:55px"> s
+      </span>
+      <button class="btn-icon btn-sm" onclick="removeStep(${i})">✕</button>
+    `;
+    cont.appendChild(el);
+  });
+}
+function addStep() {
+  seqSteps.push({color:'#0040ff', dur:1.0, type:'color'});
+  renderSeqSteps();
+}
+function removeStep(i) {
+  seqSteps.splice(i, 1);
+  renderSeqSteps();
+}
+async function runSequence() {
+  const steps = seqSteps.map(s => ({
+    color: s.type === 'color' ? hexToRgb(s.color) : null,
+    off:   s.type === 'off',
+    duration: s.dur,
+  }));
+  await api('mode', {name:'sequence', steps, loop: true});
+  setActiveMode('sequence');
+}
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+}
+
+// ── App Watch ─────────────────────────────────────────────────────────────────
+function renderRules() {
+  const cont = document.getElementById('ruleList');
+  cont.innerHTML = '';
+  appRules.forEach((rule, i) => {
+    const el = document.createElement('div');
+    el.className = 'rule-row';
+    el.innerHTML = `
+      <input type="text" placeholder="process name (e.g. telegram)" value="${rule.process}"
+             oninput="appRules[${i}].process=this.value">
+      <input type="color" value="${rule.color}" oninput="appRules[${i}].color=this.value">
+      <button class="btn-icon btn-sm" onclick="removeRule(${i})">✕</button>
+    `;
+    cont.appendChild(el);
+  });
+}
+function addRule() {
+  appRules.push({process:'', color:'#8040ff'});
+  renderRules();
+}
+function removeRule(i) {
+  appRules.splice(i, 1);
+  renderRules();
+}
+async function runAppWatch() {
+  const rules = appRules.map(r => {
+    const [cr,cg,cb] = hexToRgb(r.color);
+    return {process: r.process, r:cr, g:cg, b:cb};
+  });
+  await api('mode', {name:'appwatch', rules});
+  setActiveMode('appwatch');
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg, err = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.color = err ? 'var(--red)' : 'var(--green)';
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
