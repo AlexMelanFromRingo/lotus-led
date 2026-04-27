@@ -21,26 +21,27 @@ pub const KNOWN_MAC_PREFIX_HINT: &str = "BE:60:65";
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[repr(u8)]
 pub enum HWMode {
-    Jump7Color      = 0x81,
-    FadeRed         = 0x82,
-    FadeGreen       = 0x83,
-    FadeBlue        = 0x84,
-    FadeYellow      = 0x85,
-    FadeCyan        = 0x86,
-    FadePurple      = 0x87,
-    FadeWhite       = 0x88,
-    CrossRedGreen   = 0x89,
-    CrossRedBlue    = 0x8A,
-    CrossGreenBlue  = 0x8B,
-    Strobe7Color    = 0x8C,
-    StrobeRed       = 0x8D,
-    StrobeGreen     = 0x8E,
-    StrobeBlue      = 0x8F,
-    StrobeYellow    = 0x90,
-    StrobeCyan      = 0x91,
-    StrobePurple    = 0x92,
-    StrobeWhite     = 0x93,
-    Fade7Color      = 0x94,
+    // ELK-BLEDOM / ELK-BLEDOB hardware mode codes (0x25–0x38)
+    Fade7Color      = 0x25,  // 7-color gradual cross-fade
+    FadeRed         = 0x26,
+    FadeGreen       = 0x27,
+    FadeBlue        = 0x28,
+    FadeYellow      = 0x29,
+    FadeCyan        = 0x2A,
+    FadePurple      = 0x2B,
+    FadeWhite       = 0x2C,
+    CrossRedGreen   = 0x2D,
+    CrossRedBlue    = 0x2E,
+    CrossGreenBlue  = 0x2F,
+    Strobe7Color    = 0x30,  // 7-color strobe flash
+    StrobeRed       = 0x31,
+    StrobeGreen     = 0x32,
+    StrobeBlue      = 0x33,
+    StrobeYellow    = 0x34,
+    StrobeCyan      = 0x35,
+    StrobePurple    = 0x36,
+    StrobeWhite     = 0x37,
+    Jump7Color      = 0x38,  // 7-color abrupt jump
 }
 
 impl HWMode {
@@ -116,9 +117,11 @@ impl Packet {
         Self([0x7E, 0x04, 0x02, lvl, 0xFF, 0xFF, 0xFF, 0x00, 0xEF])
     }
 
-    /// Activate a hardware built-in animation mode
+    /// Activate a hardware built-in animation mode.
+    /// speed 0–100 where 0 = fastest, 100 = slowest.
     pub fn hw_mode(mode: HWMode, speed: u8) -> Self {
-        Self([0x7E, 0x05, 0x03, mode as u8, speed.min(100), 0x00, 0x00, 0x00, 0xEF])
+        // Byte[5] must be 0xFF for the controller to recognise this command.
+        Self([0x7E, 0x05, 0x03, mode as u8, speed.min(100), 0xFF, 0x00, 0x00, 0xEF])
     }
 
     /// Activate on-board microphone (if present), sensitivity 0–255
