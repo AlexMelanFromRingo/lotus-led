@@ -56,6 +56,7 @@ enum WsEvent {
     Connected   { mac: String },
     Disconnected,
     Status(StatusPayload),
+    Error       { message: String },
 }
 
 #[derive(Clone, Serialize)]
@@ -89,7 +90,7 @@ fn err_resp(msg: impl Into<String>) -> (StatusCode, Json<ErrResp>) {
 // Solution: a dedicated OS thread with its own current_thread runtime + LocalSet.
 // Axum handlers send ModeCmd over an mpsc channel into this thread.
 
-fn start_mode_thread() -> mpsc::Sender<ModeCmd> {
+fn start_mode_thread(event_tx: broadcast::Sender<WsEvent>) -> mpsc::Sender<ModeCmd> {
     let (tx, mut rx) = mpsc::channel::<ModeCmd>(4);
 
     std::thread::Builder::new()
@@ -104,9 +105,11 @@ fn start_mode_thread() -> mpsc::Sender<ModeCmd> {
             rt.block_on(local.run_until(async move {
                 while let Some(cmd) = rx.recv().await {
                     let (mc, dev, flag) = (cmd.config, cmd.device, cmd.flag);
-                    // spawn_local is valid here — we're inside LocalSet::run_until
+                    let etx = event_tx.clone();
                     tokio::task::spawn_local(async move {
-                        let _ = run_mode(mc, dev, flag).await;
+                        if let Err(e) = run_mode(mc, dev, flag).await {
+                            let _ = etx.send(WsEvent::Error { message: e.to_string() });
+                        }
                     });
                 }
             }));
@@ -122,8 +125,8 @@ fn start_mode_thread() -> mpsc::Sender<ModeCmd> {
 async fn main() {
     let cfg_path = Config::default_path();
     let config   = Config::load(&cfg_path).unwrap_or_default();
-    let mode_tx  = start_mode_thread();
     let (tx, _)  = broadcast::channel::<WsEvent>(64);
+    let mode_tx  = start_mode_thread(tx.clone());
 
     let state: Shared = Arc::new(Mutex::new(AppState {
         device: None, config, mode_stop: None, mode_tx, tx,
@@ -259,7 +262,10 @@ async fn api_color(
     Json(req):    Json<ColorReq>,
 ) -> impl IntoResponse {
     let (r, g, b) = (req.r, req.g, req.b);
-    with_device(state, move |dev| async move { dev.set_color(r, g, b).await }).await
+    with_device(state, move |dev| async move {
+        dev.power_on().await?;
+        dev.set_color(r, g, b).await
+    }).await
 }
 async fn api_brightness(
     State(state): State<Shared>,
@@ -345,7 +351,7 @@ async fn launch_mode(state: &Shared, dev: Arc<BLEDOMDevice>, mc: ModeConfig) {
     s.mode_stop  = Some(flag.clone());
     let tx       = s.mode_tx.clone();
     drop(s);
-    // Send to the dedicated mode thread (has its own LocalSet, handles !Send futures)
+    let _ = dev.power_on().await;  // ensure device is on (Sunset/SleepTimer may have turned it off)
     let _ = tx.send(ModeCmd { config: mc, device: dev, flag }).await;
 }
 

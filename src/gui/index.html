@@ -191,8 +191,9 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
 .mode-btn .icon { font-size: 19px; line-height: 1.2; }
 .mode-btn:hover { border-color: var(--accent); color: var(--text); background: #1a1a22; }
 .mode-btn.active {
-  border-color: var(--accent); background: #1e1030;
-  color: var(--accent2); box-shadow: 0 0 0 1px var(--accent) inset;
+  border-color: var(--accent2); background: #1e1030;
+  color: var(--accent2);
+  box-shadow: 0 0 0 2px var(--accent) inset, 0 0 14px rgba(176,111,227,.25);
 }
 
 /* ── Mode params panel ── */
@@ -583,6 +584,7 @@ function connectWS() {
       if (msg.type === 'status')       updateStatus(msg.data);
       if (msg.type === 'connected')    onConnected(msg.data);
       if (msg.type === 'disconnected') onDisconnected();
+      if (msg.type === 'error')        { toast(msg.data.message, true); setActiveMode(null); }
     } catch(_) {}
   };
   ws.onclose = () => setTimeout(connectWS, 2000);

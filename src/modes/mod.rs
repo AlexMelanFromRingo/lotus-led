@@ -225,11 +225,10 @@ pub async fn run_mode(
             run_game(&device, keywords, check_secs, rainbow_fps, cycle_secs, &running).await,
 
         #[allow(unreachable_patterns)]
-        _ => {
-            eprintln!("This mode requires a feature that was not compiled in. \
-                       Rebuild with --features audio/ambient/system.");
-            Ok(())
-        }
+        _ => anyhow::bail!(
+            "This mode requires a feature that was not compiled in. \
+             Rebuild with --features audio/ambient/system."
+        ),
     }
 }
 
