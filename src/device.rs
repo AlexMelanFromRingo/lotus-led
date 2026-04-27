@@ -16,6 +16,7 @@ use {
 #[cfg(not(feature = "ble"))]
 use anyhow::Result;
 
+use std::sync::Arc;
 use crate::protocol::{
     DeviceStatus, Packet, DEVICE_NAME_PATTERNS, KNOWN_MAC_PREFIX_HINT,
     NOTIFY_UUID_STR, WRITE_UUID_STR,
@@ -246,5 +247,58 @@ impl BLEDOMDevice {
     }
     pub async fn set_mic(&self, sensitivity: u8) -> Result<()> {
         self.send(Packet::mic_sensitivity(sensitivity)).await
+    }
+}
+
+// ── Multi-device group ────────────────────────────────────────────────────────
+
+/// Control multiple LED strips simultaneously.
+///
+/// ```no_run
+/// let group = DeviceGroup::new(vec![strip_a, strip_b]);
+/// group.broadcast(Packet::color(255, 0, 128)).await?;
+/// group.get(0).set_color(255, 0, 0).await?;
+/// ```
+pub struct DeviceGroup {
+    pub devices: Vec<Arc<BLEDOMDevice>>,
+}
+
+impl DeviceGroup {
+    pub fn new(devices: Vec<Arc<BLEDOMDevice>>) -> Self {
+        Self { devices }
+    }
+
+    pub fn get(&self, idx: usize) -> Option<&Arc<BLEDOMDevice>> {
+        self.devices.get(idx)
+    }
+
+    pub fn len(&self) -> usize { self.devices.len() }
+    pub fn is_empty(&self) -> bool { self.devices.is_empty() }
+
+    /// Send the same packet to every device in parallel.
+    pub async fn broadcast(&self, packet: Packet) -> Result<()> {
+        let futs: Vec<_> = self.devices.iter().map(|d: &Arc<BLEDOMDevice>| d.send(packet)).collect();
+        futures::future::try_join_all(futs).await?;
+        Ok(())
+    }
+
+    pub async fn power_on(&self)  -> Result<()> { self.broadcast(Packet::power_on()).await }
+    pub async fn power_off(&self) -> Result<()> { self.broadcast(Packet::power_off()).await }
+
+    pub async fn set_color(&self, r: u8, g: u8, b: u8) -> Result<()> {
+        self.broadcast(Packet::color(r, g, b)).await
+    }
+    pub async fn set_brightness(&self, level: u8) -> Result<()> {
+        self.broadcast(Packet::brightness(level)).await
+    }
+    pub async fn set_speed(&self, level: u8) -> Result<()> {
+        self.broadcast(Packet::speed(level)).await
+    }
+
+    /// Disconnect all devices.
+    pub async fn disconnect_all(&self) {
+        for d in &self.devices {
+            let _ = d.disconnect().await;  // ignore individual errors
+        }
     }
 }

@@ -57,6 +57,50 @@ pub enum ModeConfig {
                  hi_r: u8, hi_g: u8, hi_b: u8 },
 
     Notification { r: u8, g: u8, b: u8, count: u32, duration_ms: u64 },
+
+    /// User-defined sequence of packets with per-step timing.
+    Sequence { steps: Vec<SequenceStep>, loop_forever: bool },
+
+    /// Per-process color rules (matches against running process names).
+    AppWatch {
+        /// Map of process name substring → (r, g, b)
+        rules: Vec<AppWatchRule>,
+        default_r: u8, default_g: u8, default_b: u8,
+        check_ms: u64,
+    },
+
+    /// Auto-detect game processes → rainbow mode.
+    #[cfg(feature = "system")]
+    Game {
+        keywords:       Vec<String>,
+        check_secs:     f32,
+        rainbow_fps:    u8,
+        cycle_secs:     f32,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SequenceStep {
+    /// Duration to hold this step (seconds)
+    pub duration_secs: f32,
+    /// Optional RGB color
+    pub color: Option<[u8; 3]>,
+    /// Optional brightness 0–100
+    pub brightness: Option<u8>,
+    /// Optional hardware mode + speed
+    pub hw_mode: Option<HWMode>,
+    pub hw_speed: Option<u8>,
+    /// Raw 9-byte packet as array
+    pub raw: Option<[u8; 9]>,
+    /// If true, send power_off packet
+    pub off: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppWatchRule {
+    pub process: String,       // substring match against process name
+    pub r: u8, pub g: u8, pub b: u8,
+    pub brightness: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -109,6 +153,16 @@ impl ModeConfig {
             "system"|"cpu" => Some(Self::SysMonitor { metric: SysMetric::Cpu, fps: 2,
                                                         lo_r: 0, lo_g: 200, lo_b: 0, hi_r: 255, hi_g: 0, hi_b: 0 }),
             "notify"|"notification" => Some(Self::Notification { r: 255, g: 230, b: 0, count: 4, duration_ms: 200 }),
+            "sequence"     => Some(Self::Sequence { steps: vec![], loop_forever: true }),
+            "appwatch"|"app_watch" => Some(Self::AppWatch {
+                rules: vec![], default_r: 80, default_g: 80, default_b: 80, check_ms: 1000,
+            }),
+            #[cfg(feature = "system")]
+            "game" => Some(Self::Game {
+                keywords:    vec!["steam".into(), "csgo".into(), "valorant".into(),
+                                  "minecraft".into(), "overwatch".into()],
+                check_secs:  5.0, rainbow_fps: 30, cycle_secs: 3.0,
+            }),
             _ => None,
         }
     }
@@ -160,6 +214,16 @@ pub async fn run_mode(
         SysMonitor { metric, fps, lo_r, lo_g, lo_b, hi_r, hi_g, hi_b }
                                                  => system_mon::run_system(&device, metric, fps,
                                                                             (lo_r,lo_g,lo_b), (hi_r,hi_g,hi_b), &running).await,
+        Sequence { steps, loop_forever } =>
+            run_sequence(&device, steps, loop_forever, &running).await,
+
+        AppWatch { rules, default_r, default_g, default_b, check_ms } =>
+            run_appwatch(&device, rules, (default_r, default_g, default_b), check_ms, &running).await,
+
+        #[cfg(feature = "system")]
+        Game { keywords, check_secs, rainbow_fps, cycle_secs } =>
+            run_game(&device, keywords, check_secs, rainbow_fps, cycle_secs, &running).await,
+
         #[allow(unreachable_patterns)]
         _ => {
             eprintln!("This mode requires a feature that was not compiled in. \
@@ -167,4 +231,155 @@ pub async fn run_mode(
             Ok(())
         }
     }
+}
+
+// ── Sequence runner ───────────────────────────────────────────────────────────
+
+#[cfg(feature = "ble")]
+async fn run_sequence(
+    device: &BLEDOMDevice,
+    steps: Vec<SequenceStep>,
+    loop_forever: bool,
+    running: &AtomicBool,
+) -> Result<()> {
+    use crate::protocol::Packet;
+    use tokio::time::{sleep, Duration};
+
+    if steps.is_empty() {
+        return Ok(());
+    }
+
+    loop {
+        for step in &steps {
+            if !running.load(Ordering::Relaxed) { return Ok(()); }
+
+            if step.off {
+                device.send(Packet::power_off()).await?;
+            }
+            if let Some([r, g, b]) = step.color {
+                device.send(Packet::color(r, g, b)).await?;
+            }
+            if let Some(br) = step.brightness {
+                device.send(Packet::brightness(br)).await?;
+            }
+            if let Some(hw) = step.hw_mode {
+                device.send(Packet::hw_mode(hw, step.hw_speed.unwrap_or(50))).await?;
+            }
+            if let Some(raw) = step.raw {
+                device.send(Packet::raw(raw)).await?;
+            }
+
+            let end = std::time::Instant::now()
+                + Duration::from_secs_f32(step.duration_secs.max(0.0));
+            while running.load(Ordering::Relaxed) && std::time::Instant::now() < end {
+                sleep(Duration::from_millis(50)).await;
+            }
+        }
+        if !loop_forever || !running.load(Ordering::Relaxed) { break; }
+    }
+    Ok(())
+}
+
+// ── AppWatch runner ───────────────────────────────────────────────────────────
+
+#[cfg(feature = "ble")]
+async fn run_appwatch(
+    device: &BLEDOMDevice,
+    rules: Vec<AppWatchRule>,
+    default_rgb: (u8, u8, u8),
+    check_ms: u64,
+    running: &AtomicBool,
+) -> Result<()> {
+    use crate::protocol::Packet;
+    use tokio::time::{sleep, Duration};
+
+    let mut last_proc = String::new();
+    while running.load(Ordering::Relaxed) {
+        let proc_name = current_foreground_process();
+        if proc_name != last_proc {
+            last_proc = proc_name.clone();
+            if let Some(rule) = rules.iter().find(|r| proc_name.to_lowercase().contains(&r.process.to_lowercase())) {
+                if let Some(br) = rule.brightness {
+                    device.send(Packet::brightness(br)).await?;
+                }
+                device.send(Packet::color(rule.r, rule.g, rule.b)).await?;
+            } else {
+                device.send(Packet::color(default_rgb.0, default_rgb.1, default_rgb.2)).await?;
+            }
+        }
+        sleep(Duration::from_millis(check_ms.max(100))).await;
+    }
+    Ok(())
+}
+
+/// Returns the name of a process currently in focus / recently active.
+/// On Windows uses GetForegroundWindow via raw WinAPI if sysinfo is available,
+/// otherwise returns empty string (AppWatch still works — it just won't react
+/// until the system feature is enabled).
+fn current_foreground_process() -> String {
+    #[cfg(all(target_os = "windows", feature = "system"))]
+    {
+        use sysinfo::{System, ProcessesToUpdate};
+
+        unsafe extern "system" {
+            fn GetForegroundWindow() -> *mut std::ffi::c_void;
+            fn GetWindowThreadProcessId(hwnd: *mut std::ffi::c_void, lpdwProcessId: *mut u32) -> u32;
+        }
+        let pid = unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.is_null() { return String::new(); }
+            let mut pid: u32 = 0;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            pid
+        };
+        let mut sys = System::new();
+        sys.refresh_processes(ProcessesToUpdate::All, false);
+        sys.process(sysinfo::Pid::from(pid as usize))
+           .map(|p| p.name().to_string_lossy().into_owned())
+           .unwrap_or_default()
+    }
+    #[cfg(not(all(target_os = "windows", feature = "system")))]
+    { String::new() }
+}
+
+// ── Game mode runner ──────────────────────────────────────────────────────────
+
+#[cfg(all(feature = "ble", feature = "system"))]
+async fn run_game(
+    device: &BLEDOMDevice,
+    keywords: Vec<String>,
+    check_secs: f32,
+    rainbow_fps: u8,
+    cycle_secs: f32,
+    running: &AtomicBool,
+) -> Result<()> {
+    use crate::protocol::{Packet, hsv_to_rgb};
+    use tokio::time::{sleep, Duration};
+    use sysinfo::{System, ProcessesToUpdate};
+
+    let dt     = Duration::from_secs_f32(1.0 / rainbow_fps.max(1) as f32);
+    let check  = Duration::from_secs_f32(check_secs.max(1.0));
+    let mut hue = 0.0_f32;
+    let mut last_check = std::time::Instant::now();
+    let mut game_active = false;
+
+    while running.load(Ordering::Relaxed) {
+        if last_check.elapsed() >= check {
+            last_check = std::time::Instant::now();
+            let mut sys = System::new();
+            sys.refresh_processes(ProcessesToUpdate::All, false);
+            game_active = sys.processes().values().any(|p| {
+                let name = p.name().to_ascii_lowercase().to_string_lossy().to_string();
+                keywords.iter().any(|kw| name.contains(kw.as_str()))
+            });
+        }
+
+        if game_active {
+            let (r, g, b) = hsv_to_rgb(hue, 1.0, 1.0);
+            device.send(Packet::color(r, g, b)).await?;
+            hue = (hue + dt.as_secs_f32() / cycle_secs).rem_euclid(1.0);
+        }
+        sleep(dt).await;
+    }
+    Ok(())
 }

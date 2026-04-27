@@ -132,6 +132,9 @@ impl Packet {
         Self([0x7E, 0x08, 0x05, 0x02, id, 0x00, 0x00, 0x00, 0xEF])
     }
 
+    /// Build a custom packet from a raw 9-byte array.
+    pub fn raw(data: [u8; 9]) -> Self { Self(data) }
+
     /// Parse a FFF4 status notification.
     /// Format: `7E 08 [Power:01/00] [ModeID] [Speed] [R] [G] [B] 00 EF`
     pub fn parse_status(data: &[u8]) -> Option<DeviceStatus> {

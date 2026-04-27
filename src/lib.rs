@@ -49,4 +49,5 @@ pub use config::Config;
 pub use modes::ModeConfig;
 
 #[cfg(feature = "ble")]
-pub use device::{BLEDOMDevice, FoundDevice};
+pub use device::{BLEDOMDevice, FoundDevice, DeviceGroup};
+pub use modes::{SequenceStep, AppWatchRule};

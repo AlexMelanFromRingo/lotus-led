@@ -335,17 +335,26 @@ async fn main() -> Result<()> {
             let dev = device.clone();
             let run_flag = running.clone();
 
-            let mode_task = tokio::spawn(async move {
-                if let Err(e) = run_mode(mc, dev, run_flag).await {
-                    eprintln!("Mode error: {e}");
-                }
+            // cpal::Stream is !Send, so use LocalSet + spawn_local
+            let local = tokio::task::LocalSet::new();
+            let mode_fut = local.run_until(async move {
+                tokio::task::spawn_local(async move {
+                    if let Err(e) = run_mode(mc, dev, run_flag).await {
+                        eprintln!("Mode error: {e}");
+                    }
+                }).await.ok()
             });
 
             if let Some(secs) = run_secs {
-                tokio::time::sleep(Duration::from_secs_f32(secs)).await;
-                running.store(false, Ordering::Relaxed);
+                tokio::select! {
+                    _ = mode_fut => {}
+                    _ = tokio::time::sleep(Duration::from_secs_f32(secs)) => {
+                        running.store(false, Ordering::Relaxed);
+                    }
+                }
+            } else {
+                mode_fut.await;
             }
-            mode_task.await?;
         }
 
         Commands::Scene { name } => {
@@ -375,6 +384,11 @@ async fn main() -> Result<()> {
         }
 
         _ => {}
+    }
+
+    // Power off if the running flag was cleared (Ctrl-C or --run timer expired)
+    if !running.load(Ordering::Relaxed) {
+        device.power_off().await?;
     }
 
     device.disconnect().await?;
