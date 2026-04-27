@@ -29,20 +29,32 @@ body {
 
 /* ── Layout ── */
 .topbar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 20px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 100;
 }
-.logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+.logo { font-size: 17px; font-weight: 700; letter-spacing: -0.5px; flex-shrink: 0; }
 .logo span { color: var(--accent2); }
 .status-dot {
-  width: 8px; height: 8px; border-radius: 50%;
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   background: var(--red); transition: background .3s;
 }
 .status-dot.on { background: var(--green); }
-.device-name { color: var(--muted); font-size: 13px; }
+.device-name { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.mode-indicator {
+  display: none; align-items: center; gap: 5px;
+  background: rgba(124,92,191,.2); border: 1px solid rgba(124,92,191,.4);
+  border-radius: 20px; padding: 2px 10px;
+  font-size: 11px; font-weight: 600; color: var(--accent2);
+}
+.mode-indicator.visible { display: flex; }
+.mode-indicator .pulse-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent2);
+  animation: blink 1.4s ease-in-out infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
 .spacer { flex: 1; }
 
 .main { padding: 20px; display: grid; gap: 16px; max-width: 900px; margin: 0 auto; }
@@ -61,16 +73,14 @@ body {
 }
 
 /* ── Buttons ── */
-btn, button {
+button {
   display: inline-flex; align-items: center; justify-content: center;
   gap: 6px; cursor: pointer; border: none; outline: none;
   border-radius: 8px; font-size: 13px; font-weight: 500;
   transition: all .15s; padding: 8px 16px;
+  font-family: inherit;
 }
-button { font-family: inherit; }
-.btn-primary {
-  background: var(--accent); color: #fff;
-}
+.btn-primary { background: var(--accent); color: #fff; }
 .btn-primary:hover { background: var(--accent2); }
 .btn-ghost {
   background: transparent; color: var(--muted);
@@ -82,9 +92,16 @@ button { font-family: inherit; }
 .btn-sm { padding: 5px 11px; font-size: 12px; }
 .btn-icon {
   background: var(--surface); border: 1px solid var(--border);
-  color: var(--muted); padding: 8px; border-radius: 8px;
+  color: var(--muted); padding: 7px; border-radius: 8px; line-height: 1;
 }
 .btn-icon:hover { color: var(--text); border-color: var(--accent); }
+.btn-on  { background: #1a3a1a; color: var(--green); border: 1px solid #2a5a2a; }
+.btn-on:hover  { background: #1f4a1f; }
+.btn-off { background: #3a1a1a; color: var(--red); border: 1px solid #5a2a2a; }
+.btn-off:hover { background: #5a2020; }
+
+/* Disabled state when not connected */
+body.disconnected .needs-conn { opacity: .4; pointer-events: none; user-select: none; }
 
 /* ── Connect panel ── */
 .connect-row {
@@ -110,26 +127,24 @@ button { font-family: inherit; }
 }
 .scan-item:last-child { border-bottom: none; }
 .scan-item:hover { background: var(--card); }
-.scan-item .mac { font-family: monospace; font-size: 12px; color: var(--muted); }
+.scan-item .mac { font-family: monospace; font-size: 12px; color: var(--muted); margin-left: auto; }
 
 /* ── Color + Quick controls ── */
 .controls-grid {
   display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start;
 }
-.color-block { display: flex; flex-direction: column; gap: 8px; }
+.color-block { display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .color-preview {
   width: 72px; height: 72px; border-radius: 12px;
   border: 2px solid var(--border); cursor: pointer;
-  transition: border-color .2s;
+  transition: border-color .2s, transform .1s;
 }
-.color-preview:hover { border-color: var(--accent); }
-input[type="color"] {
-  position: absolute; opacity: 0; width: 0; height: 0;
-}
-.color-hex {
-  font-family: monospace; font-size: 12px; color: var(--muted);
-  text-align: center;
-}
+.color-preview:hover { border-color: var(--accent); transform: scale(1.04); }
+input[type="color"] { position: absolute; opacity: 0; width: 0; height: 0; }
+.color-hex { font-family: monospace; font-size: 11px; color: var(--muted); text-align: center; }
+.power-row { display: flex; gap: 10px; margin-bottom: 16px; }
+
+/* ── Sliders ── */
 .sliders { display: flex; flex-direction: column; gap: 14px; }
 .slider-row { display: flex; flex-direction: column; gap: 6px; }
 .slider-label {
@@ -139,8 +154,7 @@ input[type="color"] {
 .slider-label span { color: var(--text); font-weight: 600; }
 input[type="range"] {
   width: 100%; height: 4px; appearance: none;
-  background: var(--border); border-radius: 4px; outline: none;
-  cursor: pointer;
+  background: var(--border); border-radius: 4px; outline: none; cursor: pointer;
 }
 input[type="range"]::-webkit-slider-thumb {
   appearance: none; width: 16px; height: 16px;
@@ -149,54 +163,67 @@ input[type="range"]::-webkit-slider-thumb {
 }
 input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
 
-/* ── Power buttons ── */
-.power-row { display: flex; gap: 10px; margin-bottom: 16px; }
-.btn-on  { background: #1a3a1a; color: var(--green); border: 1px solid #2a5a2a; }
-.btn-on:hover  { background: #1f4a1f; }
-.btn-off { background: #3a1a1a; color: var(--red);   border: 1px solid #5a2a2a; }
-.btn-off:hover { background: #5a2020; }
+/* ── Tabs ── */
+.tabs { display: flex; gap: 2px; margin-bottom: 16px; flex-wrap: wrap; }
+.tab {
+  padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  font-size: 12px; font-weight: 500; color: var(--muted);
+  transition: all .15s; background: none; border: none; font-family: inherit;
+}
+.tab:hover { color: var(--text); }
+.tab.active { background: var(--surface); color: var(--text); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
 
 /* ── Mode grid ── */
 .mode-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   gap: 8px;
 }
 .mode-btn {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 6px;
-  cursor: pointer;
-  text-align: center;
-  transition: all .15s;
-  display: flex; flex-direction: column;
-  align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 500; color: var(--muted);
-  letter-spacing: 0.3px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 6px; cursor: pointer;
+  text-align: center; transition: all .15s;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 500; color: var(--muted); letter-spacing: 0.3px;
 }
-.mode-btn .icon { font-size: 20px; }
-.mode-btn:hover { border-color: var(--accent); color: var(--text); }
+.mode-btn .icon { font-size: 19px; line-height: 1.2; }
+.mode-btn:hover { border-color: var(--accent); color: var(--text); background: #1a1a22; }
 .mode-btn.active {
   border-color: var(--accent); background: #1e1030;
   color: var(--accent2); box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
+/* ── Mode params panel ── */
+.mode-params {
+  margin-top: 14px;
+  background: rgba(124,92,191,.07);
+  border: 1px solid rgba(124,92,191,.3);
+  border-radius: 10px; padding: 14px 16px;
+  animation: fadeIn .18s ease;
+}
+@keyframes fadeIn { from { opacity:0; transform:translateY(-4px) } to { opacity:1; transform:none } }
+.params-header {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.params-title { font-size: 13px; font-weight: 700; color: var(--accent2); flex: 1; }
+.params-actions { display: flex; gap: 8px; }
+.params-sliders {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+}
+.params-empty { font-size: 12px; color: var(--muted); padding: 4px 0; }
+@media (max-width: 520px) { .params-sliders { grid-template-columns: 1fr; } }
+
 /* ── Scene grid ── */
 .scene-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 10px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;
 }
 .scene-btn {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 8px;
-  cursor: pointer;
-  text-align: center;
-  transition: all .15s;
-  font-size: 12px; color: var(--muted);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 8px; cursor: pointer;
+  text-align: center; transition: all .15s; font-size: 12px; color: var(--muted);
 }
 .scene-btn .icon { font-size: 22px; display: block; margin-bottom: 4px; }
 .scene-btn:hover { border-color: var(--accent); color: var(--text); }
@@ -204,24 +231,19 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
 /* ── Sequence builder ── */
 .seq-steps { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .seq-step {
-  display: grid;
-  grid-template-columns: 36px auto 1fr auto auto auto;
-  gap: 8px; align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
+  display: grid; gap: 8px; align-items: center;
+  grid-template-columns: 24px 34px auto 1fr auto;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px;
 }
 .seq-step input[type="color"] {
   position: static; opacity: 1; width: 28px; height: 28px;
-  border-radius: 6px; padding: 0; border: 2px solid var(--border);
+  border-radius: 6px; padding: 2px; border: 2px solid var(--border);
   cursor: pointer; background: none;
 }
 .seq-step input[type="number"] {
-  width: 60px;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 6px; color: var(--text); padding: 4px 6px;
-  font-size: 12px; outline: none;
+  width: 100%; background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); padding: 4px 6px; font-size: 12px; outline: none;
 }
 .seq-step input[type="number"]:focus { border-color: var(--accent); }
 .seq-step select {
@@ -229,22 +251,19 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
   border-radius: 6px; color: var(--text); padding: 4px 6px;
   font-size: 12px; outline: none; cursor: pointer;
 }
-.step-label { font-size: 11px; color: var(--muted); }
 .step-num {
-  width: 20px; height: 20px; border-radius: 50%;
-  background: var(--border); color: var(--muted);
-  font-size: 11px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--border);
+  color: var(--muted); font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .seq-actions { display: flex; gap: 8px; }
 
 /* ── AppWatch rules ── */
 .rule-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .rule-row {
-  display: grid; grid-template-columns: 1fr 36px auto;
+  display: grid; grid-template-columns: 1fr 34px auto;
   gap: 8px; align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; padding: 8px 10px;
 }
 .rule-row input[type="text"] {
@@ -256,18 +275,18 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
 .rule-row input[type="text"]:focus { border-color: var(--accent); }
 .rule-row input[type="color"] {
   position: static; opacity: 1; width: 28px; height: 28px;
-  border-radius: 6px; padding: 0; border: 2px solid var(--border);
+  border-radius: 6px; padding: 2px; border: 2px solid var(--border);
   cursor: pointer; background: none;
 }
 
 /* ── Status bar ── */
 .status-bar {
-  display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+  display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
   font-size: 12px; font-family: 'Consolas', monospace; color: var(--muted);
 }
 .status-bar .val { color: var(--text); }
-.status-bar .pill {
-  padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+.pill {
+  padding: 2px 9px; border-radius: 12px; font-size: 11px; font-weight: 600;
 }
 .pill-on  { background: #1a3a1a; color: var(--green); }
 .pill-off { background: #3a1a1a; color: var(--red); }
@@ -276,8 +295,7 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
 #toast {
   position: fixed; bottom: 24px; right: 24px;
   background: var(--card); border: 1px solid var(--border);
-  border-radius: 10px; padding: 10px 16px;
-  font-size: 13px; color: var(--text);
+  border-radius: 10px; padding: 10px 16px; font-size: 13px; color: var(--text);
   box-shadow: 0 8px 32px rgba(0,0,0,.5);
   transform: translateY(80px); opacity: 0;
   transition: all .25s; pointer-events: none; z-index: 200;
@@ -286,24 +304,11 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
 
 /* ── Spinner ── */
 .spin {
-  display: inline-block; width: 14px; height: 14px;
+  display: inline-block; width: 13px; height: 13px;
   border: 2px solid var(--border); border-top-color: var(--accent);
   border-radius: 50%; animation: spin .7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* ── Tabs ── */
-.tabs { display: flex; gap: 2px; margin-bottom: 16px; }
-.tab {
-  padding: 7px 14px; border-radius: 8px; cursor: pointer;
-  font-size: 12px; font-weight: 500; color: var(--muted);
-  transition: all .15s; background: none; border: none;
-  font-family: inherit;
-}
-.tab:hover { color: var(--text); }
-.tab.active { background: var(--surface); color: var(--text); }
-.tab-panel { display: none; }
-.tab-panel.active { display: block; }
 
 @media (max-width: 600px) {
   .controls-grid { grid-template-columns: 1fr; }
@@ -311,15 +316,19 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
 }
 </style>
 </head>
-<body>
+<body class="disconnected">
 
 <!-- ── Top bar ── -->
 <div class="topbar">
   <div class="logo">🌸 <span>Lotus</span> LED</div>
   <div class="status-dot" id="statusDot"></div>
   <div class="device-name" id="deviceName">Not connected</div>
+  <div class="mode-indicator" id="modeIndicator">
+    <span class="pulse-dot"></span>
+    <span id="modeIndicatorLabel"></span>
+  </div>
   <div class="spacer"></div>
-  <button class="btn-icon btn-sm" onclick="refreshStatus()" title="Refresh status">⟳</button>
+  <button class="btn-icon btn-sm needs-conn" onclick="refreshStatus()" title="Refresh status" style="font-size:15px">⟳</button>
 </div>
 
 <!-- ── Main ── -->
@@ -332,13 +341,13 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
       <input type="text" id="macInput" placeholder="Auto-discover (leave empty)" spellcheck="false">
       <button class="btn-primary" onclick="doConnect()" id="connectBtn">Connect</button>
       <button class="btn-ghost" onclick="doScan()" id="scanBtn">Scan</button>
-      <button class="btn-danger btn-sm" onclick="doDisconnect()">Disconnect</button>
+      <button class="btn-danger btn-sm needs-conn" onclick="doDisconnect()">Disconnect</button>
     </div>
     <div class="scan-results" id="scanResults"></div>
   </div>
 
   <!-- Power + Color + Sliders -->
-  <div class="card">
+  <div class="card needs-conn">
     <div class="card-title">Control</div>
     <div class="power-row">
       <button class="btn-on" onclick="api('on')">⚡ ON</button>
@@ -347,10 +356,11 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
     <div class="controls-grid">
       <div class="color-block">
         <div class="color-preview" id="colorPreview" style="background:#ff6420"
-             onclick="document.getElementById('colorPicker').click()"></div>
-        <input type="color" id="colorPicker" value="#ff6420" oninput="onColorInput(this.value)">
+             onclick="document.getElementById('colorPicker').click()" title="Click to pick color"></div>
+        <input type="color" id="colorPicker" value="#ff6420"
+               oninput="onColorInput(this.value)"
+               onchange="sendColor()">
         <div class="color-hex" id="colorHex">#ff6420</div>
-        <button class="btn-ghost btn-sm" onclick="sendColor()">Apply</button>
       </div>
       <div class="sliders">
         <div class="slider-row">
@@ -381,6 +391,17 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
     <!-- Modes -->
     <div class="tab-panel active" id="tab-modes">
       <div class="mode-grid" id="modeGrid"></div>
+      <div class="mode-params" id="modeParams" style="display:none">
+        <div class="params-header">
+          <div class="params-title" id="paramsTitle"></div>
+          <div class="params-actions">
+            <button class="btn-primary btn-sm needs-conn" onclick="launchWithParams()">▶ Launch</button>
+            <button class="btn-ghost btn-sm needs-conn" onclick="stopMode()">■ Stop</button>
+            <button class="btn-icon btn-sm" onclick="closeParams()" title="Close">✕</button>
+          </div>
+        </div>
+        <div class="params-sliders" id="paramsSliders"></div>
+      </div>
     </div>
 
     <!-- Scenes -->
@@ -392,9 +413,9 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
     <div class="tab-panel" id="tab-seq">
       <div class="seq-steps" id="seqSteps"></div>
       <div class="seq-actions">
-        <button class="btn-ghost btn-sm" onclick="addStep()">+ Add step</button>
-        <button class="btn-primary btn-sm" onclick="runSequence()">▶ Run</button>
-        <button class="btn-ghost btn-sm" onclick="stopMode()">■ Stop</button>
+        <button class="btn-ghost btn-sm" onclick="addStep()">+ Step</button>
+        <button class="btn-primary btn-sm needs-conn" onclick="runSequence()">▶ Run</button>
+        <button class="btn-ghost btn-sm needs-conn" onclick="stopMode()">■ Stop</button>
       </div>
     </div>
 
@@ -402,12 +423,13 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
     <div class="tab-panel" id="tab-appwatch">
       <div class="rule-list" id="ruleList"></div>
       <div style="display:flex;gap:8px;margin-bottom:12px">
-        <button class="btn-ghost btn-sm" onclick="addRule()">+ Add rule</button>
-        <button class="btn-primary btn-sm" onclick="runAppWatch()">▶ Run</button>
-        <button class="btn-ghost btn-sm" onclick="stopMode()">■ Stop</button>
+        <button class="btn-ghost btn-sm" onclick="addRule()">+ Rule</button>
+        <button class="btn-primary btn-sm needs-conn" onclick="runAppWatch()">▶ Run</button>
+        <button class="btn-ghost btn-sm needs-conn" onclick="stopMode()">■ Stop</button>
       </div>
       <div style="font-size:11px;color:var(--muted)">
-        Matches foreground app name (case-insensitive substring). E.g. "telegram", "discord", "spotify".
+        Matches foreground window process name (case-insensitive substring).<br>
+        e.g. "telegram", "discord", "spotify"
       </div>
     </div>
   </div>
@@ -415,9 +437,7 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
   <!-- Status -->
   <div class="card">
     <div class="card-title">Status</div>
-    <div class="status-bar" id="statusBar">
-      <span>Waiting...</span>
-    </div>
+    <div class="status-bar" id="statusBar"><span>Waiting...</span></div>
   </div>
 
 </div>
@@ -425,29 +445,29 @@ input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent2); }
 <div id="toast"></div>
 
 <script>
-// ── Modes data ──────────────────────────────────────────────────────────────
+// ── Mode definitions ────────────────────────────────────────────────────────
 const MODES = [
-  {name:'static',   label:'Static',   icon:'■'},
-  {name:'pulse',    label:'Pulse',    icon:'◎'},
-  {name:'rainbow',  label:'Rainbow',  icon:'🌈'},
-  {name:'wave',     label:'Wave',     icon:'〜'},
-  {name:'fire',     label:'Fire',     icon:'🔥'},
-  {name:'meteor',   label:'Meteor',   icon:'☄'},
-  {name:'comet',    label:'Comet',    icon:'✦'},
-  {name:'sunrise',  label:'Sunrise',  icon:'🌅'},
-  {name:'sunset',   label:'Sunset',   icon:'🌇'},
-  {name:'cct',      label:'Daylight', icon:'💡'},
-  {name:'sleep_timer',label:'Sleep',  icon:'🌙'},
-  {name:'alarm',    label:'Alarm',    icon:'⏰'},
-  {name:'audio',    label:'Audio FFT',icon:'🎤'},
-  {name:'music',    label:'Music',    icon:'🎵'},
-  {name:'ambient',  label:'Ambilight',icon:'🖥'},
-  {name:'system',   label:'CPU/RAM',  icon:'💻'},
-  {name:'game',     label:'Game',     icon:'🎮'},
-  {name:'mic_hw',   label:'Mic HW',   icon:'🎙'},
-  {name:'fade_7_color',label:'Fade7', icon:'🌊'},
-  {name:'strobe_7_color',label:'Strobe7',icon:'⚡'},
-  {name:'jump_7_color',label:'Jump7', icon:'🎆'},
+  {name:'static',        label:'Static',    icon:'■'},
+  {name:'pulse',         label:'Pulse',     icon:'◎'},
+  {name:'rainbow',       label:'Rainbow',   icon:'🌈'},
+  {name:'wave',          label:'Wave',      icon:'〜'},
+  {name:'fire',          label:'Fire',      icon:'🔥'},
+  {name:'meteor',        label:'Meteor',    icon:'☄'},
+  {name:'comet',         label:'Comet',     icon:'✦'},
+  {name:'sunrise',       label:'Sunrise',   icon:'🌅'},
+  {name:'sunset',        label:'Sunset',    icon:'🌇'},
+  {name:'cct',           label:'Daylight',  icon:'💡'},
+  {name:'sleep_timer',   label:'Sleep',     icon:'🌙'},
+  {name:'alarm',         label:'Alarm',     icon:'⏰'},
+  {name:'audio',         label:'Audio FFT', icon:'🎤'},
+  {name:'music',         label:'Music',     icon:'🎵'},
+  {name:'ambient',       label:'Ambilight', icon:'🖥'},
+  {name:'system',        label:'CPU/RAM',   icon:'💻'},
+  {name:'game',          label:'Game',      icon:'🎮'},
+  {name:'mic_hw',        label:'Mic HW',    icon:'🎙'},
+  {name:'fade_7_color',  label:'Fade 7',    icon:'🌊'},
+  {name:'strobe_7_color',label:'Strobe 7',  icon:'⚡'},
+  {name:'jump_7_color',  label:'Jump 7',    icon:'🎆'},
 ];
 
 const SCENES = [
@@ -460,10 +480,84 @@ const SCENES = [
   {name:'chill',   label:'Chill',   icon:'🧊'},
 ];
 
+// Params definition per mode.
+// type 'range': min/max/step/default, optional unit string, optional fmt fn
+// type 'color': appears as a color picker labeled key
+const MODE_PARAMS = {
+  pulse:       [
+    {key:'period', label:'Period',      type:'range', min:.5,  max:20,    step:.5,  def:3,    unit:'s', fmt: v=>v.toFixed(1)+'s'},
+    {key:'fps',    label:'FPS',         type:'range', min:5,   max:30,    step:1,   def:20},
+  ],
+  rainbow:     [
+    {key:'period', label:'Cycle',       type:'range', min:1,   max:60,    step:1,   def:10,   unit:'s', fmt: v=>v+'s'},
+    {key:'fps',    label:'FPS',         type:'range', min:5,   max:30,    step:1,   def:20},
+  ],
+  wave:        [
+    {key:'period', label:'Cycle',       type:'range', min:1,   max:60,    step:1,   def:8,    unit:'s', fmt: v=>v+'s'},
+    {key:'fps',    label:'FPS',         type:'range', min:5,   max:30,    step:1,   def:20},
+  ],
+  fire:        [
+    {key:'fps',       label:'FPS',       type:'range', min:5,   max:30,    step:1,   def:15},
+    {key:'intensity', label:'Intensity', type:'range', min:.1,  max:2,     step:.1,  def:1, fmt: v=>(+v).toFixed(1)},
+  ],
+  meteor:      [
+    {key:'fps',    label:'FPS',         type:'range', min:5,   max:30,    step:1,   def:20},
+  ],
+  comet:       [
+    {key:'fps',    label:'FPS',         type:'range', min:5,   max:30,    step:1,   def:20},
+  ],
+  sunrise:     [
+    {key:'duration', label:'Duration',  type:'range', min:30,  max:3600,  step:30,  def:300,  fmt: v=>fmtDuration(v)},
+  ],
+  sunset:      [
+    {key:'duration', label:'Duration',  type:'range', min:30,  max:3600,  step:30,  def:300,  fmt: v=>fmtDuration(v)},
+  ],
+  sleep_timer: [
+    {key:'duration', label:'Duration',  type:'range', min:60,  max:7200,  step:60,  def:1800, fmt: v=>fmtDuration(v)},
+  ],
+  cct:         [
+    {key:'temp',  label:'Color Temp',   type:'range', min:1800,max:10000, step:100, def:4000, fmt: v=>v+'K'},
+    {key:'brightness', label:'Bright',  type:'range', min:0,   max:100,   step:1,   def:80,   fmt: v=>v+'%'},
+  ],
+  alarm:       [
+    {key:'count', label:'Flashes',      type:'range', min:1,   max:30,    step:1,   def:15},
+  ],
+  audio:       [
+    {key:'sensitivity', label:'Sensitivity', type:'range', min:.1, max:5, step:.1, def:1, fmt: v=>(+v).toFixed(1)},
+    {key:'fps',    label:'FPS',          type:'range', min:5,   max:30,    step:1,   def:25},
+  ],
+  music:       [
+    {key:'sensitivity', label:'Sensitivity', type:'range', min:.1, max:5, step:.1, def:1.2, fmt: v=>(+v).toFixed(1)},
+    {key:'fps',    label:'FPS',          type:'range', min:5,   max:30,    step:1,   def:30},
+  ],
+  ambient:     [
+    {key:'fps',    label:'FPS',          type:'range', min:1,   max:15,    step:1,   def:10},
+  ],
+  system:      [
+    {key:'fps',    label:'FPS',          type:'range', min:1,   max:10,    step:1,   def:2},
+  ],
+  mic_hw:      [
+    {key:'sensitivity', label:'Sensitivity', type:'range', min:0, max:255, step:5, def:200},
+  ],
+  fade_7_color:   [{key:'speed', label:'Speed', type:'range', min:0, max:100, step:1, def:50}],
+  strobe_7_color: [{key:'speed', label:'Speed', type:'range', min:0, max:100, step:1, def:50}],
+  jump_7_color:   [{key:'speed', label:'Speed', type:'range', min:0, max:100, step:1, def:50}],
+};
+
+function fmtDuration(secs) {
+  if (secs < 60) return secs + 's';
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return m + 'm' + (s ? s + 's' : '');
+}
+
 // ── State ───────────────────────────────────────────────────────────────────
 let connected = false;
 let activeMode = null;
-let seqSteps = [{color:'#ff0000', dur:1.0, type:'color'}, {color:'#00ff00', dur:1.0, type:'color'}];
+let pendingMode = null;   // mode whose params panel is open
+let seqSteps = [
+  {color:'#ff0000', dur:1.0, type:'color'},
+  {color:'#00ff00', dur:1.0, type:'color'},
+];
 let appRules = [
   {process:'telegram', color:'#0088d4'},
   {process:'discord',  color:'#7289da'},
@@ -484,10 +578,12 @@ document.addEventListener('DOMContentLoaded', () => {
 function connectWS() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = e => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === 'status') updateStatus(msg.data);
-    if (msg.type === 'connected') onConnected(msg.mac);
-    if (msg.type === 'disconnected') onDisconnected();
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'status')       updateStatus(msg.data);
+      if (msg.type === 'connected')    onConnected(msg.data);
+      if (msg.type === 'disconnected') onDisconnected();
+    } catch(_) {}
   };
   ws.onclose = () => setTimeout(connectWS, 2000);
 }
@@ -505,14 +601,13 @@ async function doConnect() {
     });
     const j = await r.json();
     if (j.ok) { onConnected(j.mac); toast('Connected: ' + j.mac); }
-    else toast('Failed: ' + (j.error || 'unknown'), true);
-  } finally {
-    btn.textContent = 'Connect'; btn.disabled = false;
-  }
+    else toast('Failed: ' + (j.error || 'unknown error'), true);
+  } catch(e) { toast(e.message, true); }
+  finally { btn.textContent = 'Connect'; btn.disabled = false; }
 }
 
 async function doDisconnect() {
-  await fetch('/api/disconnect', {method:'POST'});
+  await fetch('/api/disconnect', {method:'POST'}).catch(()=>{});
   onDisconnected();
 }
 
@@ -522,18 +617,18 @@ async function doScan() {
   btn.innerHTML = '<span class="spin"></span>';
   btn.disabled = true;
   res.style.display = 'block';
-  res.innerHTML = '<div class="scan-item" style="color:var(--muted)">Scanning (8s)...</div>';
+  res.innerHTML = '<div class="scan-item" style="color:var(--muted)">Scanning…</div>';
   try {
     const r = await fetch('/api/scan');
     const j = await r.json();
     res.innerHTML = '';
-    if (!j.devices || j.devices.length === 0) {
+    if (!j.devices?.length) {
       res.innerHTML = '<div class="scan-item" style="color:var(--muted)">No devices found</div>';
     } else {
       for (const d of j.devices) {
         const el = document.createElement('div');
         el.className = 'scan-item';
-        el.innerHTML = `<span>${d.name}</span><span class="mac">${d.address}</span>`;
+        el.innerHTML = `<span>${escHtml(d.name||'(unknown)')}</span><span class="mac">${escHtml(d.address)}</span>`;
         el.onclick = () => {
           document.getElementById('macInput').value = d.address;
           res.style.display = 'none';
@@ -541,20 +636,22 @@ async function doScan() {
         res.appendChild(el);
       }
     }
-  } finally {
-    btn.textContent = 'Scan'; btn.disabled = false;
-  }
+  } catch(e) { res.innerHTML = '<div class="scan-item" style="color:var(--red)">' + escHtml(e.message) + '</div>'; }
+  finally { btn.textContent = 'Scan'; btn.disabled = false; }
 }
 
 function onConnected(mac) {
   connected = true;
-  document.getElementById('statusDot').className = 'status-dot on';
-  document.getElementById('deviceName').textContent = mac;
+  document.body.classList.remove('disconnected');
+  document.getElementById('statusDot').classList.add('on');
+  document.getElementById('deviceName').textContent = mac || 'Connected';
 }
 function onDisconnected() {
   connected = false;
-  document.getElementById('statusDot').className = 'status-dot';
+  document.body.classList.add('disconnected');
+  document.getElementById('statusDot').classList.remove('on');
   document.getElementById('deviceName').textContent = 'Not connected';
+  setActiveMode(null);
 }
 
 // ── API calls ───────────────────────────────────────────────────────────────
@@ -565,7 +662,9 @@ async function api(endpoint, body = null) {
       headers: body ? {'Content-Type':'application/json'} : {},
       body:    body ? JSON.stringify(body) : null,
     });
-    return await r.json();
+    const j = await r.json();
+    if (!j.ok) toast(j.error || 'Error', true);
+    return j;
   } catch(e) { toast(e.message, true); }
 }
 
@@ -582,13 +681,17 @@ async function sendColor() {
   await api('color', {r, g, b});
   setActiveMode(null);
 }
+function setColorPicker(r, g, b) {
+  const hex = '#' + [r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+  document.getElementById('colorPicker').value = hex;
+  document.getElementById('colorPreview').style.background = hex;
+  document.getElementById('colorHex').textContent = hex;
+}
 
 // ── Status ───────────────────────────────────────────────────────────────────
 function updateStatus(s) {
   const bar = document.getElementById('statusBar');
-  const pill = s.power
-    ? '<span class="pill pill-on">ON</span>'
-    : '<span class="pill pill-off">OFF</span>';
+  const pill = s.power ? '<span class="pill pill-on">ON</span>' : '<span class="pill pill-off">OFF</span>';
   const rgb = `rgb(${s.r},${s.g},${s.b})`;
   bar.innerHTML = `
     ${pill}
@@ -596,22 +699,20 @@ function updateStatus(s) {
     <span>Speed: <span class="val">${s.speed}</span></span>
     <span>RGB: <span class="val">(${s.r}, ${s.g}, ${s.b})</span>
       <span style="display:inline-block;width:12px;height:12px;border-radius:3px;
-                   background:${rgb};margin-left:4px;vertical-align:middle"></span>
-    </span>
-  `;
-  // Sync sliders/color to status
-  if (s.power) {
-    const hex = '#' + [s.r,s.g,s.b].map(v=>v.toString(16).padStart(2,'0')).join('');
-    document.getElementById('colorPreview').style.background = hex;
-    document.getElementById('colorHex').textContent = hex;
-  }
+                   background:${rgb};margin-left:5px;vertical-align:middle"></span>
+    </span>`;
+  if (s.power && !activeMode) setColorPicker(s.r, s.g, s.b);
 }
 async function refreshStatus() {
-  const r = await fetch('/api/status');
-  if (r.ok) { const j = await r.json(); if (j.status) updateStatus(j.status); }
+  try {
+    const r = await fetch('/api/status');
+    const j = await r.json();
+    if (j.status) updateStatus(j.status);
+    else toast('No status (send a command first)', false);
+  } catch(e) { toast(e.message, true); }
 }
 
-// ── Modes ────────────────────────────────────────────────────────────────────
+// ── Mode grid ────────────────────────────────────────────────────────────────
 function buildModeGrid() {
   const grid = document.getElementById('modeGrid');
   for (const m of MODES) {
@@ -619,28 +720,83 @@ function buildModeGrid() {
     btn.className = 'mode-btn';
     btn.id = 'mode-' + m.name;
     btn.innerHTML = `<span class="icon">${m.icon}</span>${m.label}`;
-    btn.onclick = () => activateMode(m.name);
+    btn.onclick = () => selectMode(m.name);
     grid.appendChild(btn);
   }
 }
-function buildSceneGrid() {
-  const grid = document.getElementById('sceneGrid');
-  for (const s of SCENES) {
-    const btn = document.createElement('div');
-    btn.className = 'scene-btn';
-    btn.innerHTML = `<span class="icon">${s.icon}</span>${s.label}`;
-    btn.onclick = () => api('scene', {name: s.name});
-    grid.appendChild(btn);
+
+function selectMode(name) {
+  // Highlight the button
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById('mode-' + name);
+  if (el) el.classList.add('active');
+  pendingMode = name;
+
+  // Build params panel
+  const params = MODE_PARAMS[name] || [];
+  const panel  = document.getElementById('modeParams');
+  const title  = document.getElementById('paramsTitle');
+  const sliders = document.getElementById('paramsSliders');
+
+  const modeInfo = MODES.find(m => m.name === name);
+  title.textContent = (modeInfo?.icon || '') + ' ' + (modeInfo?.label || name);
+
+  sliders.innerHTML = '';
+  if (!params.length) {
+    sliders.innerHTML = '<div class="params-empty" style="grid-column:1/-1">No adjustable parameters — click Launch to start.</div>';
+  } else {
+    for (const p of params) {
+      const id = 'p_' + p.key;
+      const initVal = p.def;
+      const dispVal = p.fmt ? p.fmt(initVal) : initVal;
+      sliders.innerHTML += `
+        <div class="slider-row">
+          <div class="slider-label">${p.label} <span id="${id}_lbl">${dispVal}</span></div>
+          <input type="range" id="${id}" min="${p.min}" max="${p.max}" step="${p.step}" value="${initVal}"
+                 oninput="document.getElementById('${id}_lbl').textContent = ${p.fmt ? `(${p.fmt.toString()})(+this.value)` : 'this.value'}">
+        </div>`;
+    }
+  }
+
+  panel.style.display = 'block';
+
+  // If not connected, just show the panel — Launch button is already disabled via .needs-conn
+  if (connected) {
+    // Launch immediately with defaults, user can relaunch after tweaking
+    doLaunchMode(name, collectParams(name));
   }
 }
-async function activateMode(name) {
+
+function closeParams() {
+  document.getElementById('modeParams').style.display = 'none';
+  pendingMode = null;
+}
+
+function collectParams(name) {
+  const params = MODE_PARAMS[name] || [];
+  const out = {};
+  for (const p of params) {
+    const el = document.getElementById('p_' + p.key);
+    if (el) out[p.key] = parseFloat(el.value);
+  }
+  return out;
+}
+
+async function launchWithParams() {
+  if (!pendingMode) return;
+  await doLaunchMode(pendingMode, collectParams(pendingMode));
+}
+
+async function doLaunchMode(name, extra = {}) {
   setActiveMode(name);
-  await api('mode', {name});
+  await api('mode', {name, ...extra});
 }
+
 async function stopMode() {
   setActiveMode(null);
   await api('stop');
 }
+
 function setActiveMode(name) {
   document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
   if (name) {
@@ -648,7 +804,34 @@ function setActiveMode(name) {
     if (el) el.classList.add('active');
   }
   activeMode = name;
+
+  // Topbar mode indicator
+  const ind = document.getElementById('modeIndicator');
+  const lbl = document.getElementById('modeIndicatorLabel');
+  if (name) {
+    const modeInfo = MODES.find(m => m.name === name);
+    lbl.textContent = modeInfo?.label || name;
+    ind.classList.add('visible');
+  } else {
+    ind.classList.remove('visible');
+    if (document.getElementById('modeParams').style.display !== 'none') {
+      closeParams();
+    }
+  }
 }
+
+// ── Scenes ───────────────────────────────────────────────────────────────────
+function buildSceneGrid() {
+  const grid = document.getElementById('sceneGrid');
+  for (const s of SCENES) {
+    const btn = document.createElement('div');
+    btn.className = 'scene-btn needs-conn';
+    btn.innerHTML = `<span class="icon">${s.icon}</span>${s.label}`;
+    btn.onclick = () => api('scene', {name: s.name});
+    grid.appendChild(btn);
+  }
+}
+
 function switchTab(id, el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -665,16 +848,14 @@ function renderSeqSteps() {
     el.className = 'seq-step';
     el.innerHTML = `
       <div class="step-num">${i+1}</div>
-      <input type="color" value="${step.color}" oninput="seqSteps[${i}].color=this.value">
+      <input type="color" value="${step.color}"
+             oninput="seqSteps[${i}].color=this.value">
       <select onchange="seqSteps[${i}].type=this.value">
-        ${['color','off','on'].map(t=>`<option value="${t}" ${step.type===t?'selected':''}>${t}</option>`).join('')}
+        ${['color','off','on'].map(t=>`<option value="${t}"${step.type===t?' selected':''}>${t}</option>`).join('')}
       </select>
-      <span class="step-label">
-        <input type="number" value="${step.dur}" min="0.1" max="300" step="0.5"
-               oninput="seqSteps[${i}].dur=+this.value" style="width:55px"> s
-      </span>
-      <button class="btn-icon btn-sm" onclick="removeStep(${i})">✕</button>
-    `;
+      <input type="number" value="${step.dur}" min="0.1" max="300" step="0.5"
+             oninput="seqSteps[${i}].dur=+this.value">
+      <button class="btn-icon btn-sm" onclick="removeStep(${i})">✕</button>`;
     cont.appendChild(el);
   });
 }
@@ -688,15 +869,12 @@ function removeStep(i) {
 }
 async function runSequence() {
   const steps = seqSteps.map(s => ({
-    color: s.type === 'color' ? hexToRgb(s.color) : null,
-    off:   s.type === 'off',
+    color:    s.type === 'color' ? hexToRgb(s.color) : null,
+    off:      s.type === 'off',
     duration: s.dur,
   }));
   await api('mode', {name:'sequence', steps, loop: true});
-  setActiveMode('sequence');
-}
-function hexToRgb(hex) {
-  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+  setActiveMode(null); // sequence doesn't map to a grid button
 }
 
 // ── App Watch ─────────────────────────────────────────────────────────────────
@@ -707,11 +885,11 @@ function renderRules() {
     const el = document.createElement('div');
     el.className = 'rule-row';
     el.innerHTML = `
-      <input type="text" placeholder="process name (e.g. telegram)" value="${rule.process}"
+      <input type="text" placeholder="process name (e.g. telegram)" value="${escHtml(rule.process)}"
              oninput="appRules[${i}].process=this.value">
-      <input type="color" value="${rule.color}" oninput="appRules[${i}].color=this.value">
-      <button class="btn-icon btn-sm" onclick="removeRule(${i})">✕</button>
-    `;
+      <input type="color" value="${rule.color}"
+             oninput="appRules[${i}].color=this.value">
+      <button class="btn-icon btn-sm" onclick="removeRule(${i})">✕</button>`;
     cont.appendChild(el);
   });
 }
@@ -729,7 +907,15 @@ async function runAppWatch() {
     return {process: r.process, r:cr, g:cg, b:cb};
   });
   await api('mode', {name:'appwatch', rules});
-  setActiveMode('appwatch');
+  setActiveMode(null);
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────────

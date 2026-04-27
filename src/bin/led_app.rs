@@ -6,7 +6,7 @@
 /// Build: cargo build --release --target x86_64-pc-windows-gnu --features gui
 use std::{
     net::SocketAddr,
-    sync::Arc,
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
     time::Duration,
 };
 use axum::{
@@ -17,26 +17,33 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, Mutex, mpsc};
 use tower_http::cors::{Any, CorsLayer};
 
 use lotus_led::{
-    BLEDOMDevice, Config, Packet, HWMode,
+    BLEDOMDevice, Config,
     modes::{ModeConfig, AppWatchRule, SequenceStep, run_mode},
 };
 
 const PORT: u16 = 7483;
 const HTML: &str = include_str!("../gui/index.html");
 
+// ── Mode runner thread command ────────────────────────────────────────────────
+
+struct ModeCmd {
+    config: ModeConfig,
+    device: Arc<BLEDOMDevice>,
+    flag:   Arc<AtomicBool>,
+}
+
 // ── App state ─────────────────────────────────────────────────────────────────
 
 struct AppState {
-    device: Option<Arc<BLEDOMDevice>>,
-    config: Config,
-    /// cancel handle for the currently running software mode
-    mode_stop: Option<Arc<std::sync::atomic::AtomicBool>>,
-    /// broadcast channel for WebSocket events
-    tx: broadcast::Sender<WsEvent>,
+    device:    Option<Arc<BLEDOMDevice>>,
+    config:    Config,
+    mode_stop: Option<Arc<AtomicBool>>,
+    mode_tx:   mpsc::Sender<ModeCmd>,
+    tx:        broadcast::Sender<WsEvent>,
 }
 
 type Shared = Arc<Mutex<AppState>>;
@@ -46,73 +53,80 @@ type Shared = Arc<Mutex<AppState>>;
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 enum WsEvent {
-    Connected { mac: String },
+    Connected   { mac: String },
     Disconnected,
     Status(StatusPayload),
-    Error { message: String },
 }
 
 #[derive(Clone, Serialize)]
 struct StatusPayload {
-    power: bool,
-    mode:  u8,
-    speed: u8,
+    power: bool, mode: u8, speed: u8,
     r: u8, g: u8, b: u8,
 }
 
 // ── Request / response types ──────────────────────────────────────────────────
 
-#[derive(Deserialize)] struct ConnectReq  { mac: Option<String> }
-#[derive(Deserialize)] struct ColorReq    { r: u8, g: u8, b: u8 }
-#[derive(Deserialize)] struct LevelReq    { level: u8 }
-#[derive(Deserialize)] struct SceneReq    { name: String }
+#[derive(Deserialize)] struct ConnectReq { mac: Option<String> }
+#[derive(Deserialize)] struct ColorReq   { r: u8, g: u8, b: u8 }
+#[derive(Deserialize)] struct LevelReq   { level: u8 }
+#[derive(Deserialize)] struct SceneReq   { name: String }
+#[derive(Deserialize)] struct ModeReq    { name: String, #[serde(flatten)] extra: serde_json::Value }
 
-#[derive(Deserialize)]
-struct ModeReq {
-    name:  String,
-    /// Override fields forwarded as-is to mode config
-    #[serde(flatten)]
-    extra: serde_json::Value,
-}
+#[derive(Serialize)] struct OkResp  { ok: bool, #[serde(skip_serializing_if="Option::is_none")] mac: Option<String> }
+#[derive(Serialize)] struct ErrResp { ok: bool, error: String }
+#[derive(Serialize)] struct ScanResp { devices: Vec<FoundDev> }
+#[derive(Serialize)] struct StatusResp { status: Option<StatusPayload> }
+#[derive(Serialize)] struct FoundDev { name: String, address: String }
 
-#[derive(Serialize)]
-struct OkResp   { ok: bool, #[serde(skip_serializing_if="Option::is_none")] mac: Option<String> }
-#[derive(Serialize)]
-struct ErrResp  { ok: bool, error: String }
-#[derive(Serialize)]
-struct ScanResp { devices: Vec<FoundDev> }
-#[derive(Serialize)]
-struct StatusResp { status: Option<StatusPayload> }
-
-#[derive(Serialize)]
-struct FoundDev { name: String, address: String }
-
-fn ok(mac: Option<String>) -> Json<OkResp> {
-    Json(OkResp { ok: true, mac })
-}
-fn err(msg: impl Into<String>) -> (StatusCode, Json<ErrResp>) {
+fn ok(mac: Option<String>) -> Json<OkResp> { Json(OkResp { ok: true, mac }) }
+fn err_resp(msg: impl Into<String>) -> (StatusCode, Json<ErrResp>) {
     (StatusCode::BAD_REQUEST, Json(ErrResp { ok: false, error: msg.into() }))
+}
+
+// ── Mode runner thread ────────────────────────────────────────────────────────
+//
+// cpal::Stream is !Send, so we can't use tokio::spawn.
+// Solution: a dedicated OS thread with its own current_thread runtime + LocalSet.
+// Axum handlers send ModeCmd over an mpsc channel into this thread.
+
+fn start_mode_thread() -> mpsc::Sender<ModeCmd> {
+    let (tx, mut rx) = mpsc::channel::<ModeCmd>(4);
+
+    std::thread::Builder::new()
+        .name("led-mode".into())
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("mode thread runtime");
+
+            let local = tokio::task::LocalSet::new();
+            rt.block_on(local.run_until(async move {
+                while let Some(cmd) = rx.recv().await {
+                    let (mc, dev, flag) = (cmd.config, cmd.device, cmd.flag);
+                    // spawn_local is valid here — we're inside LocalSet::run_until
+                    tokio::task::spawn_local(async move {
+                        let _ = run_mode(mc, dev, flag).await;
+                    });
+                }
+            }));
+        })
+        .expect("spawn mode thread");
+
+    tx
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() {
-    let local = tokio::task::LocalSet::new();
-    local.run_until(run_server()).await;
-}
-
-async fn run_server() {
     let cfg_path = Config::default_path();
     let config   = Config::load(&cfg_path).unwrap_or_default();
-
-    let (tx, _) = broadcast::channel::<WsEvent>(64);
+    let mode_tx  = start_mode_thread();
+    let (tx, _)  = broadcast::channel::<WsEvent>(64);
 
     let state: Shared = Arc::new(Mutex::new(AppState {
-        device: None,
-        config,
-        mode_stop: None,
-        tx: tx.clone(),
+        device: None, config, mode_stop: None, mode_tx, tx,
     }));
 
     let cors = CorsLayer::new()
@@ -138,7 +152,7 @@ async fn run_server() {
         .with_state(state)
         .layer(cors);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], PORT));
+    let addr     = SocketAddr::from(([127, 0, 0, 1], PORT));
     let listener = tokio::net::TcpListener::bind(addr).await
         .expect("Cannot bind port 7483 — is it already in use?");
 
@@ -164,8 +178,8 @@ fn open_browser(port: u16) {
 async fn serve_html() -> Html<&'static str> { Html(HTML) }
 
 async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Shared>,
+    ws:             WebSocketUpgrade,
+    State(state):   State<Shared>,
 ) -> impl IntoResponse {
     let rx = state.lock().await.tx.subscribe();
     ws.on_upgrade(|socket| ws_task(socket, rx))
@@ -179,7 +193,6 @@ async fn ws_task(mut socket: WebSocket, mut rx: broadcast::Receiver<WsEvent>) {
                 if socket.send(Message::Text(json.into())).await.is_err() { break; }
             }
             Some(Ok(msg)) = socket.recv() => {
-                // ping/pong keepalive
                 if let Message::Close(_) = msg { break; }
             }
             else => break,
@@ -188,10 +201,9 @@ async fn ws_task(mut socket: WebSocket, mut rx: broadcast::Receiver<WsEvent>) {
 }
 
 async fn api_scan(State(state): State<Shared>) -> impl IntoResponse {
-    let timeout = {
-        let s = state.lock().await;
-        Duration::from_secs_f32(s.config.device.scan_timeout_secs)
-    };
+    let timeout = Duration::from_secs_f32(
+        state.lock().await.config.device.scan_timeout_secs
+    );
     match BLEDOMDevice::scan(timeout).await {
         Ok(found) => Json(ScanResp {
             devices: found.iter().map(|d| FoundDev {
@@ -199,38 +211,39 @@ async fn api_scan(State(state): State<Shared>) -> impl IntoResponse {
                 address: d.address.clone(),
             }).collect()
         }).into_response(),
-        Err(e) => err(e.to_string()).into_response(),
+        Err(e) => err_resp(e.to_string()).into_response(),
     }
 }
 
 async fn api_connect(
     State(state): State<Shared>,
-    body: Option<Json<ConnectReq>>,
+    body:         Option<Json<ConnectReq>>,
 ) -> impl IntoResponse {
-    let mac = body.and_then(|b| b.mac.clone()).unwrap_or_default();
-    let timeout = {
-        let s = state.lock().await;
-        Duration::from_secs_f32(s.config.device.scan_timeout_secs)
-    };
+    let mac     = body.and_then(|b| b.mac.clone()).unwrap_or_default();
+    let timeout = Duration::from_secs_f32(
+        state.lock().await.config.device.scan_timeout_secs
+    );
     match BLEDOMDevice::connect(&mac, timeout).await {
         Ok(dev) => {
-            let address = dev.address().to_string();
-            let dev = Arc::new(dev);
-            let mut s = state.lock().await;
-            s.device = Some(dev);
+            let address = dev.address();
+            let dev     = Arc::new(dev);
+            let mut s   = state.lock().await;
+            s.device    = Some(dev);
             let _ = s.tx.send(WsEvent::Connected { mac: address.clone() });
             ok(Some(address)).into_response()
         }
-        Err(e) => err(e.to_string()).into_response(),
+        Err(e) => err_resp(e.to_string()).into_response(),
     }
 }
 
 async fn api_disconnect(State(state): State<Shared>) -> impl IntoResponse {
     let mut s = state.lock().await;
-    stop_mode_inner(&mut s).await;
+    stop_mode_inner(&mut s);
     if let Some(dev) = s.device.take() {
+        drop(s); // release lock before awaiting
         let _ = dev.disconnect().await;
     }
+    let mut s = state.lock().await;
     let _ = s.tx.send(WsEvent::Disconnected);
     ok(None)
 }
@@ -241,62 +254,50 @@ async fn api_on(State(state): State<Shared>) -> impl IntoResponse {
 async fn api_off(State(state): State<Shared>) -> impl IntoResponse {
     with_device(state, |dev| async move { dev.power_off().await }).await
 }
-
 async fn api_color(
     State(state): State<Shared>,
-    Json(req): Json<ColorReq>,
+    Json(req):    Json<ColorReq>,
 ) -> impl IntoResponse {
     let (r, g, b) = (req.r, req.g, req.b);
-    with_device(state, move |dev| async move {
-        dev.set_color(r, g, b).await
-    }).await
+    with_device(state, move |dev| async move { dev.set_color(r, g, b).await }).await
 }
-
 async fn api_brightness(
     State(state): State<Shared>,
-    Json(req): Json<LevelReq>,
+    Json(req):    Json<LevelReq>,
 ) -> impl IntoResponse {
     let level = req.level;
     with_device(state, move |dev| async move { dev.set_brightness(level).await }).await
 }
-
 async fn api_speed(
     State(state): State<Shared>,
-    Json(req): Json<LevelReq>,
+    Json(req):    Json<LevelReq>,
 ) -> impl IntoResponse {
     let level = req.level;
     with_device(state, move |dev| async move { dev.set_speed(level).await }).await
 }
 
 async fn api_stop(State(state): State<Shared>) -> impl IntoResponse {
-    let mut s = state.lock().await;
-    stop_mode_inner(&mut s).await;
+    stop_mode_inner(&mut *state.lock().await);
     ok(None)
 }
 
 async fn api_scene(
     State(state): State<Shared>,
-    Json(req): Json<SceneReq>,
+    Json(req):    Json<SceneReq>,
 ) -> impl IntoResponse {
     let (dev, cfg) = {
         let s = state.lock().await;
         (s.device.clone(), s.config.clone())
     };
-    let Some(dev) = dev else { return err("Not connected").into_response(); };
-
+    let Some(dev) = dev else { return err_resp("Not connected").into_response(); };
     let Some(scene) = cfg.scenes.get(&req.name).cloned() else {
-        return err(format!("Unknown scene '{}'", req.name)).into_response();
+        return err_resp(format!("Unknown scene '{}'", req.name)).into_response();
     };
-
-    if let Some(b) = scene.brightness {
-        let _ = dev.set_brightness(b).await;
-    }
-    if let Some(c) = scene.color {
-        let _ = dev.set_color(c[0], c[1], c[2]).await;
-    }
+    if let Some(b) = scene.brightness { let _ = dev.set_brightness(b).await; }
+    if let Some(c) = scene.color      { let _ = dev.set_color(c[0], c[1], c[2]).await; }
     if let Some(mode_name) = &scene.mode {
         if let Some(mc) = ModeConfig::from_name(mode_name, &cfg) {
-            launch_mode(state.clone(), dev, mc).await;
+            launch_mode(&state, dev, mc).await;
         }
     }
     ok(None).into_response()
@@ -304,60 +305,48 @@ async fn api_scene(
 
 async fn api_mode(
     State(state): State<Shared>,
-    Json(req): Json<ModeReq>,
+    Json(req):    Json<ModeReq>,
 ) -> impl IntoResponse {
     let (dev, cfg) = {
         let s = state.lock().await;
         (s.device.clone(), s.config.clone())
     };
-    let Some(dev) = dev else { return err("Not connected").into_response(); };
-
-    let mc = build_mode_config(&req.name, &req.extra, &cfg);
-    let Some(mc) = mc else {
-        return err(format!("Unknown mode '{}'", req.name)).into_response();
+    let Some(dev) = dev else { return err_resp("Not connected").into_response(); };
+    let Some(mc) = build_mode(&req.name, &req.extra, &cfg) else {
+        return err_resp(format!("Unknown mode '{}'", req.name)).into_response();
     };
-
-    launch_mode(state, dev, mc).await;
+    launch_mode(&state, dev, mc).await;
     ok(None).into_response()
 }
 
 async fn api_status(State(state): State<Shared>) -> impl IntoResponse {
-    let s = state.lock().await;
-    let Some(dev) = s.device.clone() else {
-        return Json(StatusResp { status: None });
-    };
-    drop(s);
+    let dev = state.lock().await.device.clone();
+    let Some(dev) = dev else { return Json(StatusResp { status: None }); };
     let mut rx = dev.status_receiver();
     let status = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-        .await
-        .ok()
-        .and_then(|r| r.ok())
-        .map(|ds| StatusPayload {
-            power: ds.power, mode: ds.mode, speed: ds.speed,
-            r: ds.r, g: ds.g, b: ds.b,
-        });
+        .await.ok().and_then(|r| r.ok())
+        .map(|ds| StatusPayload { power: ds.power, mode: ds.mode, speed: ds.speed,
+                                   r: ds.r, g: ds.g, b: ds.b });
     Json(StatusResp { status })
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async fn stop_mode_inner(s: &mut AppState) {
+fn stop_mode_inner(s: &mut AppState) {
     if let Some(flag) = s.mode_stop.take() {
-        flag.store(false, std::sync::atomic::Ordering::Relaxed);
+        flag.store(false, Ordering::Relaxed);
     }
 }
 
-async fn launch_mode(state: Shared, dev: Arc<BLEDOMDevice>, mc: ModeConfig) {
-    let mut s = state.lock().await;
-    stop_mode_inner(&mut s).await;
-
-    let flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    s.mode_stop = Some(flag.clone());
+async fn launch_mode(state: &Shared, dev: Arc<BLEDOMDevice>, mc: ModeConfig) {
+    let mut s    = state.lock().await;
+    stop_mode_inner(&mut s);
+    let flag     = Arc::new(AtomicBool::new(true));
+    s.mode_stop  = Some(flag.clone());
+    let tx       = s.mode_tx.clone();
     drop(s);
-
-    tokio::task::spawn_local(async move {
-        let _ = run_mode(mc, dev, flag).await;
-    });
+    // Send to the dedicated mode thread (has its own LocalSet, handles !Send futures)
+    let _ = tx.send(ModeCmd { config: mc, device: dev, flag }).await;
 }
 
 async fn with_device<F, Fut>(state: Shared, f: F) -> impl IntoResponse
@@ -367,46 +356,40 @@ where
 {
     let dev = state.lock().await.device.clone();
     match dev {
-        None      => err("Not connected").into_response(),
+        None      => err_resp("Not connected").into_response(),
         Some(dev) => match f(dev).await {
             Ok(_)  => ok(None).into_response(),
-            Err(e) => err(e.to_string()).into_response(),
+            Err(e) => err_resp(e.to_string()).into_response(),
         }
     }
 }
 
-/// Build a ModeConfig from the mode name + extra JSON params from the request.
-fn build_mode_config(name: &str, extra: &serde_json::Value, cfg: &Config) -> Option<ModeConfig> {
-    // Handle sequence mode with inline steps from the GUI
+fn build_mode(name: &str, extra: &serde_json::Value, cfg: &Config) -> Option<ModeConfig> {
     if name == "sequence" {
         let steps = extra.get("steps")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|s| {
-                let dur = s.get("duration").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
-                let off = s.get("off").and_then(|v| v.as_bool()).unwrap_or(false);
-                let color = s.get("color").and_then(|v| v.as_array()).map(|a| {
-                    let nums: Vec<u8> = a.iter().filter_map(|x| x.as_u64().map(|n| n as u8)).collect();
-                    if nums.len() == 3 { Some([nums[0], nums[1], nums[2]]) } else { None }
-                }).flatten();
-                Some(SequenceStep {
-                    duration_secs: dur, off,
-                    color, brightness: None, hw_mode: None, hw_speed: None, raw: None,
-                })
+                let dur   = s.get("duration").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+                let off   = s.get("off").and_then(|v| v.as_bool()).unwrap_or(false);
+                let color = s.get("color").and_then(|v| v.as_array()).and_then(|a| {
+                    let n: Vec<u8> = a.iter().filter_map(|x| x.as_u64().map(|n| n as u8)).collect();
+                    if n.len() == 3 { Some([n[0], n[1], n[2]]) } else { None }
+                });
+                Some(SequenceStep { duration_secs: dur, off, color,
+                                    brightness: None, hw_mode: None, hw_speed: None, raw: None })
             }).collect())
             .unwrap_or_default();
         let loop_forever = extra.get("loop").and_then(|v| v.as_bool()).unwrap_or(true);
         return Some(ModeConfig::Sequence { steps, loop_forever });
     }
-
-    // Handle appwatch with inline rules
     if name == "appwatch" || name == "app_watch" {
         let rules = extra.get("rules")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|r| {
-                let process = r.get("process").and_then(|v| v.as_str())?.to_string();
-                let red   = r.get("r").and_then(|v| v.as_u64()).unwrap_or(128) as u8;
-                let green = r.get("g").and_then(|v| v.as_u64()).unwrap_or(128) as u8;
-                let blue  = r.get("b").and_then(|v| v.as_u64()).unwrap_or(128) as u8;
+                let process    = r.get("process").and_then(|v| v.as_str())?.to_string();
+                let red        = r.get("r").and_then(|v| v.as_u64()).unwrap_or(128) as u8;
+                let green      = r.get("g").and_then(|v| v.as_u64()).unwrap_or(128) as u8;
+                let blue       = r.get("b").and_then(|v| v.as_u64()).unwrap_or(128) as u8;
                 let brightness = r.get("brightness").and_then(|v| v.as_u64()).map(|n| n as u8);
                 Some(AppWatchRule { process, r: red, g: green, b: blue, brightness })
             }).collect())
@@ -416,5 +399,80 @@ fn build_mode_config(name: &str, extra: &serde_json::Value, cfg: &Config) -> Opt
         });
     }
 
-    ModeConfig::from_name(name, cfg)
+    let mut mc = ModeConfig::from_name(name, cfg)?;
+
+    // Apply extra JSON params sent from the GUI
+    let f32p = |k: &str| extra.get(k).and_then(|v| v.as_f64()).map(|v| v as f32);
+    let u8p  = |k: &str| extra.get(k).and_then(|v| v.as_u64()).map(|v| v as u8);
+    let u32p = |k: &str| extra.get(k).and_then(|v| v.as_u64()).map(|v| v as u32);
+    let rgbp = |k: &str| -> Option<[u8; 3]> {
+        extra.get(k).and_then(|v| v.as_array()).and_then(|a| {
+            if a.len() == 3 {
+                Some([a[0].as_u64().unwrap_or(0) as u8,
+                      a[1].as_u64().unwrap_or(0) as u8,
+                      a[2].as_u64().unwrap_or(0) as u8])
+            } else { None }
+        })
+    };
+
+    match &mut mc {
+        ModeConfig::Static { r, g, b } => {
+            if let Some([cr,cg,cb]) = rgbp("color") { *r=cr; *g=cg; *b=cb; }
+        }
+        ModeConfig::Pulse { r, g, b, period_secs, fps, .. } => {
+            if let Some(v) = f32p("period") { *period_secs = v; }
+            if let Some(v) = u8p("fps")    { *fps = v; }
+            if let Some([cr,cg,cb]) = rgbp("color") { *r=cr; *g=cg; *b=cb; }
+        }
+        ModeConfig::Rainbow { cycle_secs, fps, .. } | ModeConfig::Wave { cycle_secs, fps, .. } => {
+            if let Some(v) = f32p("period") { *cycle_secs = v; }
+            if let Some(v) = u8p("fps")    { *fps = v; }
+        }
+        ModeConfig::Fire { fps, intensity } => {
+            if let Some(v) = u8p("fps")        { *fps = v; }
+            if let Some(v) = f32p("intensity") { *intensity = v; }
+        }
+        ModeConfig::Meteor { r, g, b, fps } => {
+            if let Some(v) = u8p("fps") { *fps = v; }
+            if let Some([cr,cg,cb]) = rgbp("color") { *r=cr; *g=cg; *b=cb; }
+        }
+        ModeConfig::Comet { fps } => {
+            if let Some(v) = u8p("fps") { *fps = v; }
+        }
+        ModeConfig::Sunrise    { duration_secs, fps }
+        | ModeConfig::Sunset   { duration_secs, fps }
+        | ModeConfig::SleepTimer { duration_secs, fps }
+        | ModeConfig::WakeUp   { duration_secs, fps } => {
+            if let Some(v) = u32p("duration") { *duration_secs = v; }
+            if let Some(v) = u8p("fps")       { *fps = v; }
+        }
+        ModeConfig::Cct { kelvin, brightness } => {
+            if let Some(v) = u32p("temp")       { *kelvin = v; }
+            if let Some(v) = u8p("brightness")  { *brightness = v; }
+        }
+        ModeConfig::Alarm { r, g, b, flash_count, .. } => {
+            if let Some([cr,cg,cb]) = rgbp("color") { *r=cr; *g=cg; *b=cb; }
+            if let Some(v) = u32p("count") { *flash_count = v; }
+        }
+        ModeConfig::Hardware { speed, .. } => {
+            if let Some(v) = u8p("speed") { *speed = v; }
+        }
+        ModeConfig::MicHardware { sensitivity } => {
+            if let Some(v) = u8p("sensitivity") { *sensitivity = v; }
+        }
+        ModeConfig::Audio { sensitivity, fps, .. }
+        | ModeConfig::Music { sensitivity, fps, .. } => {
+            if let Some(v) = f32p("sensitivity") { *sensitivity = v; }
+            if let Some(v) = u8p("fps")          { *fps = v; }
+        }
+        ModeConfig::Ambient { fps, .. } => {
+            if let Some(v) = u8p("fps") { *fps = v; }
+        }
+        ModeConfig::SysMonitor { fps, .. } => {
+            if let Some(v) = u8p("fps") { *fps = v; }
+        }
+        _ => {}
+    }
+
+    Some(mc)
 }
